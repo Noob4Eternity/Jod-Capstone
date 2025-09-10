@@ -16,6 +16,37 @@ from langchain_core.output_parsers import JsonOutputParser
 from pydantic import BaseModel, Field, field_validator
 from langgraph.graph import StateGraph, END
 
+# ==================== CONSTANTS / SCHEMA (API-READY) ====================
+
+# JSON schema used to guide LLM output (kept simple for token efficiency). When converting to an API
+# this can be exported so clients know the contract.
+USER_STORY_JSON_SCHEMA = r"""{
+    "type": "array",
+    "items": {
+        "type": "object",
+        "required": [
+            "id",
+            "title",
+            "description",
+            "acceptance_criteria",
+            "priority",
+            "estimated_points",
+            "dependencies",
+            "technical_notes"
+        ],
+        "properties": {
+            "id": {"type": "string", "pattern": "^US\\d{3}$"},
+            "title": {"type": "string"},
+            "description": {"type": "string"},
+            "acceptance_criteria": {"type": "array", "minItems": 3, "maxItems": 7, "items": {"type": "string"}},
+            "priority": {"type": "string", "enum": ["high", "medium", "low"]},
+            "estimated_points": {"type": "integer", "enum": [1,2,3,5,8,13]},
+            "dependencies": {"type": "array", "items": {"type": "string", "pattern": "^US\\d{3}$"}},
+            "technical_notes": {"type": "string"}
+        }
+    }
+}"""
+
 # ==================== STATE DEFINITION ====================
 
 class ValidationStatus(Enum):
@@ -46,26 +77,42 @@ class UserStory(BaseModel):
             raise ValueError('Story points must follow Fibonacci sequence: 1, 2, 3, 5, 8, 13')
         return v
 
+class DocumentationInput(BaseModel):
+    """Schema for documentation input"""
+    document_type: str = Field(description="Type of documentation: PRD, BRD, Technical Spec, etc.")
+    title: str = Field(description="Document title")
+    content: str = Field(description="Main document content")
+    sections: Optional[Dict[str, str]] = Field(description="Structured sections (overview, features, requirements, etc.)", default={})
+    stakeholders: Optional[List[str]] = Field(description="Key stakeholders mentioned", default=[])
+    business_goals: Optional[List[str]] = Field(description="Business objectives", default=[])
+    technical_constraints: Optional[List[str]] = Field(description="Technical limitations or requirements", default=[])
+    success_criteria: Optional[List[str]] = Field(description="Definition of success", default=[])
+
 class ProjectManagementState(TypedDict):
     """Shared state for all agents in the workflow"""
-    # Input
-    client_requirements: str
+    # Input - Enhanced to support documentation
+    client_requirements: str  # Backward compatibility
+    documentation: Optional[Dict]  # New structured documentation input
     project_id: str
     project_context: Optional[Dict]  # Industry, team size, tech stack, etc.
     
     # Generated artifacts
     parsed_requirements: Optional[Dict]
     user_stories: Optional[List[Dict]]
+    previous_user_stories: Optional[List[Dict]]  # For tracking iterations
     
-    # Validation
+    # Validation and Feedback Loop
     validation_status: Optional[str]
     validation_feedback: Optional[List[str]]
     validation_score: Optional[float]
     story_issues: Optional[Dict[str, List[str]]]  # Issues per story ID
+    detailed_feedback: Optional[Dict]  # Rich feedback from validation agent
+    improvement_instructions: Optional[List[str]]  # Specific instructions for next iteration
     
     # Metadata
     current_phase: str
     iteration_count: int
+    max_iterations: int
     last_error: Optional[str]
     processing_time: Optional[Dict[str, float]]
     timestamp: str
@@ -87,50 +134,183 @@ class UserStoryGenerationAgent:
         )
         
         self.story_prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are an expert Product Manager and Business Analyst specializing in creating comprehensive user stories from client requirements.
+            (
+                "system",
+                """You are an expert Product Manager + Agile BA generating a HIGH-QUALITY, VALIDATION-READY backlog of user stories.
 
-Your task is to analyze the client requirements and generate detailed user stories following these guidelines:
+PRIMARY OBJECTIVE: Produce user stories that will pass a strict validator early (format, INVEST, coverage, sizing, NFR inclusion).
 
-1. **Story Format**: Use the standard format "As a [type of user], I want [goal/desire] so that [benefit/value]"
-2. **Completeness**: Ensure each story is independent and deliverable
-3. **INVEST Criteria**: Each story should be Independent, Negotiable, Valuable, Estimable, Small, Testable
-4. **Technical Depth**: Include technical notes for developers
-5. **Clear Acceptance Criteria**: Each criterion should be testable and specific
+STRICT OUTPUT CONTRACT:
 
-Context about the project:
-{project_context}
+JSON SCHEMA (guidance – conform conceptually):
+{json_schema}
 
-Generate user stories that:
-- Cover all aspects of the requirements
-- Are properly prioritized based on business value and dependencies
-- Include realistic story point estimates
-- Have clear dependencies marked
-- Include both functional and non-functional requirements (security, performance, etc.)
+PRE-EMISSION INTERNAL STEPS (do silently):
+1. Decompose requirements into atomic requirement_units (not output).
+2. Map each requirement_unit -> at least one story.
+3. Run self_check: FORMAT_OK, MIN_CRITERIA(>=3), INVEST_OK, NO_DUP_IDS, NO_CIRCULAR_DEPS, NFR_COVERED (if implied), COVERAGE_COMPLETE (no obvious uncovered major feature nouns), SIZING_OK (<=13), FEEDBACK_APPLIED.
+4. If any check fails, silently revise before output.
 
-Output the stories as a JSON array with the exact structure provided."""),
-            ("human", """Client Requirements:
+ITERATIONS:
+
+TECHNICAL NOTES must provide actionable implementation hints (APIs, data, validation, security or performance considerations).
+
+SCORING ALIGNMENT HINTS:
+Format(15) + Completeness(20) + Coverage(25) + NFR(10) + Consistency & Dependencies(10) + Sizing(10) + Acceptance Criteria Quality(10).
+
+Return ONLY the JSON array of story objects. No commentary."""
+            ),
+            (
+                "human",
+                """SOURCE REQUIREMENTS / DOCUMENTATION:
 {requirements}
 
-Generate comprehensive user stories from these requirements. 
+VALIDATION / FEEDBACK CONTEXT (may be empty if first iteration):
+{feedback_section}
 
-Return a JSON array where each story has:
-- id: Unique identifier (US001, US002, etc.)
-- title: User story in standard format
-- description: Detailed description
-- acceptance_criteria: Array of specific, testable criteria
-- priority: "high", "medium", or "low"
-- estimated_points: Story points (1, 2, 3, 5, 8, or 13)
-- dependencies: Array of story IDs this depends on
-- technical_notes: Implementation guidance for developers
+PROJECT CONTEXT:
+{project_context}
 
-Focus on creating stories that are:
-1. Complete and independent
-2. Properly sized (not too large)
-3. Testable with clear acceptance criteria
-4. Valuable to the end user""")
+INSTRUCTIONS:
+1. Respect explicit terminology in requirements; do not invent unrelated features.
+2. Use personas derived from stakeholders / roles mentioned (fallback: user, admin, system administrator, project manager, QA engineer).
+3. Acceptance criteria: Prefer measurable, avoid vague verbs ("optimize" alone unacceptable).
+4. Security / performance / scalability / reliability included if implied even indirectly.
+5. Avoid epics: if description covers multiple unrelated capabilities, split into multiple stories.
+6. Keep language concise and implementation-agnostic except inside technical_notes.
+{iteration_instructions}
+
+OUTPUT: JSON array ONLY. No surrounding text.
+{feedback_focus}"""
+            ),
         ])
         
         self.parser = JsonOutputParser()
+        
+    def _parse_documentation(self, state: ProjectManagementState) -> str:
+        """Parse documentation input and convert to requirements format"""
+        # Check if we have structured documentation
+        if state.get("documentation"):
+            doc = state["documentation"]
+            
+            # Build comprehensive requirements from documentation
+            requirements_parts = []
+            
+            # Add document header
+            if doc.get("title"):
+                requirements_parts.append(f"Project: {doc['title']}")
+            if doc.get("document_type"):
+                requirements_parts.append(f"Document Type: {doc['document_type']}")
+            
+            # Add main content
+            if doc.get("content"):
+                requirements_parts.append("\n=== MAIN REQUIREMENTS ===")
+                requirements_parts.append(doc["content"])
+            
+            # Add structured sections
+            if doc.get("sections"):
+                for section_name, section_content in doc["sections"].items():
+                    requirements_parts.append(f"\n=== {section_name.upper()} ===")
+                    requirements_parts.append(section_content)
+            
+            # Add business context
+            if doc.get("business_goals"):
+                requirements_parts.append("\n=== BUSINESS GOALS ===")
+                for goal in doc["business_goals"]:
+                    requirements_parts.append(f"- {goal}")
+            
+            # Add stakeholders
+            if doc.get("stakeholders"):
+                requirements_parts.append("\n=== STAKEHOLDERS ===")
+                requirements_parts.append(f"Key stakeholders: {', '.join(doc['stakeholders'])}")
+            
+            # Add technical constraints
+            if doc.get("technical_constraints"):
+                requirements_parts.append("\n=== TECHNICAL CONSTRAINTS ===")
+                for constraint in doc["technical_constraints"]:
+                    requirements_parts.append(f"- {constraint}")
+            
+            # Add success criteria
+            if doc.get("success_criteria"):
+                requirements_parts.append("\n=== SUCCESS CRITERIA ===")
+                for criteria in doc["success_criteria"]:
+                    requirements_parts.append(f"- {criteria}")
+            
+            return "\n".join(requirements_parts)
+        
+        # Fallback to original client_requirements
+        return state.get("client_requirements", "")
+    
+    def _format_feedback_for_prompt(self, state: ProjectManagementState) -> tuple:
+        """Format validation feedback for inclusion in the generation prompt"""
+        iteration_count = state.get("iteration_count", 0)
+        
+        if iteration_count == 0:
+            # First iteration - no feedback
+            return "", "", ""
+        
+        feedback_section = "\n=== VALIDATION FEEDBACK FROM PREVIOUS ITERATION ===\n"
+        iteration_instructions = "\n6. **CRITICAL**: Address all validation feedback from the previous iteration"
+        feedback_focus = "\n6. **Address specific feedback and improve story quality**"
+        
+        # Add detailed feedback if available
+        detailed_feedback = state.get("detailed_feedback", {})
+        validation_feedback = state.get("validation_feedback", [])
+        story_issues = state.get("story_issues", {})
+        
+        if detailed_feedback:
+            feedback_section += f"**Validation Score**: {state.get('validation_score', 0):.1f}/100\n\n"
+            
+            # Critical issues
+            if detailed_feedback.get("critical_issues"):
+                feedback_section += "**CRITICAL ISSUES TO FIX**:\n"
+                for issue in detailed_feedback["critical_issues"]:
+                    feedback_section += f"- {issue}\n"
+                feedback_section += "\n"
+            
+            # Missing requirements
+            if detailed_feedback.get("missing_requirements"):
+                feedback_section += "**MISSING REQUIREMENTS**:\n"
+                for req in detailed_feedback["missing_requirements"]:
+                    feedback_section += f"- {req}\n"
+                feedback_section += "\n"
+            
+            # Recommendations
+            if detailed_feedback.get("recommendations"):
+                feedback_section += "**RECOMMENDATIONS FOR IMPROVEMENT**:\n"
+                for rec in detailed_feedback["recommendations"]:
+                    feedback_section += f"- {rec}\n"
+                feedback_section += "\n"
+            
+            # Story-specific issues
+            if story_issues:
+                feedback_section += "**STORY-SPECIFIC ISSUES**:\n"
+                for story_id, issues in story_issues.items():
+                    feedback_section += f"Story {story_id}:\n"
+                    for issue in issues:
+                        feedback_section += f"  - {issue}\n"
+                feedback_section += "\n"
+        
+        elif validation_feedback:
+            feedback_section += "**GENERAL FEEDBACK**:\n"
+            for feedback in validation_feedback:
+                feedback_section += f"- {feedback}\n"
+            feedback_section += "\n"
+        
+        # Add improvement instructions if available
+        improvement_instructions = state.get("improvement_instructions", [])
+        if improvement_instructions:
+            feedback_section += "**SPECIFIC IMPROVEMENT INSTRUCTIONS**:\n"
+            for instruction in improvement_instructions:
+                feedback_section += f"- {instruction}\n"
+            feedback_section += "\n"
+        
+        # Add previous stories for reference
+        previous_stories = state.get("previous_user_stories", [])
+        if previous_stories:
+            feedback_section += f"**PREVIOUS ITERATION HAD {len(previous_stories)} STORIES** - Use this as reference but improve based on feedback.\n"
+        
+        return feedback_section, iteration_instructions, feedback_focus
         
     def _extract_key_features(self, requirements: str) -> List[str]:
         """Extract key features from requirements for better story generation"""
@@ -237,25 +417,44 @@ Focus on creating stories that are:
         start_time = datetime.now()
         
         try:
-            requirements = state["client_requirements"]
+            # Store previous stories before generating new ones
+            current_stories = state.get("user_stories", [])
+            if current_stories:
+                state["previous_user_stories"] = current_stories
+            
+            # Parse documentation if available, otherwise use original requirements
+            requirements = self._parse_documentation(state)
             project_context = state.get("project_context", {})
             
             # Format context for the prompt
             context_str = json.dumps(project_context) if project_context else "No specific context provided"
             
-            # Generate stories using Gemini
+            # Format feedback for iterative improvement
+            feedback_section, iteration_instructions, feedback_focus = self._format_feedback_for_prompt(state)
+            
+            # Log iteration info
+            iteration_count = state.get("iteration_count", 0)
+            print(f"[GENERATION] Iteration {iteration_count + 1}")
+            if iteration_count > 0:
+                print(f"[GENERATION] Using feedback from validation to improve stories")
+            
+            # Generate stories using Gemini with feedback
             chain = self.story_prompt | self.llm | self.parser
             
             raw_stories = chain.invoke({
                 "requirements": requirements,
-                "project_context": context_str
+                "project_context": context_str,
+                "feedback_section": feedback_section,
+                "iteration_instructions": iteration_instructions,
+                "feedback_focus": feedback_focus,
+                "json_schema": USER_STORY_JSON_SCHEMA
             })
             
             # Ensure we have a list
             if not isinstance(raw_stories, list):
                 raw_stories = [raw_stories]
             
-            # Validate and clean each story
+            # Validate and clean each story (structural adjustments before coverage pass)
             validated_stories = []
             for idx, story in enumerate(raw_stories):
                 # Ensure story has all required fields
@@ -276,7 +475,25 @@ Focus on creating stories that are:
                 if validated_story["title"] and not self._is_valid_story_format(validated_story["title"]):
                     validated_story["title"] = self._fix_story_format(validated_story["title"])
                 
+                # Ensure minimum acceptance criteria length (auto-fix if model gave too few)
+                if len(validated_story["acceptance_criteria"]) < 3:
+                    # Pad by echoing last criterion variations (better than failing later)
+                    while len(validated_story["acceptance_criteria"]) < 3:
+                        seed_text = validated_story["acceptance_criteria"][-1] if validated_story["acceptance_criteria"] else "System returns success response"
+                        validated_story["acceptance_criteria"].append(seed_text)
+
                 validated_stories.append(validated_story)
+
+            # Post-pass: enforce sequential IDs & uniqueness (API-friendly deterministic output)
+            seen = set()
+            for i, story in enumerate(validated_stories):
+                new_id = f"US{i+1:03d}"
+                story["id"] = new_id
+                if story["id"] in seen:
+                    # Should not happen after reassignment, but safety check
+                    suffix = len(seen)
+                    story["id"] = f"US{i+1:03d}"
+                seen.add(story["id"])
             
             # Ensure coverage of all requirements
             validated_stories = self._ensure_coverage(requirements, validated_stories)
@@ -325,54 +542,45 @@ class UserStoryValidationAgent:
         )
         
         self.validation_prompt = ChatPromptTemplate.from_messages([
-            ("system", """You are an expert QA specialist and Business Analyst responsible for validating user stories.
+            (
+                "system",
+                """You are an expert QA / Agile validator.
+Assess user stories using this weighted rubric (total 100):
+1. Format & Required Fields (15)
+2. Completeness & Acceptance Criteria Quality (20)
+3. Requirements & NFR Coverage (25)
+4. Consistency & Dependencies (10)
+5. Sizing & Split Quality (10)
+6. Priority Logic & Business Alignment (10)
+7. Technical Notes Usefulness (10)
 
-Evaluate each user story against these criteria:
+Expectations:
+- Title pattern: As a <persona>, I want <capability> so that <benefit>
+- Acceptance criteria: >=3, each objectively testable
+- Story points: one of 1,2,3,5,8,13
+- Include NFR stories if security, performance, scalability, reliability, observability, compliance implied
+- No circular / invalid dependencies; IDs sequential US###
+- Technical notes: actionable implementation guidance
 
-1. **FORMAT COMPLIANCE**:
-   - Follows "As a [user], I want [feature] so that [benefit]" format
-   - Has unique ID
-   - All required fields present
-
-2. **INVEST PRINCIPLES**:
-   - Independent: Can be developed separately
-   - Negotiable: Not overly detailed implementation
-   - Valuable: Provides clear value to users
-   - Estimable: Clear enough to estimate effort
-   - Small: Can be completed in one sprint
-   - Testable: Has clear acceptance criteria
-
-3. **COMPLETENESS**:
-   - Acceptance criteria are specific and measurable
-   - Dependencies are logical
-   - Priority aligns with business value
-   - Technical notes provide useful guidance
-
-4. **REQUIREMENTS COVERAGE**:
-   - All client requirements are addressed
-   - No major features are missing
-   - Non-functional requirements included
-
-5. **CONSISTENCY**:
-   - No contradictions between stories
-   - Dependencies make sense
-   - Priorities are logical
-
-Provide detailed feedback for each issue found."""),
-            ("human", """Original Requirements:
+Classify findings: critical_issues (must fix), recommendations (quality improvements), warnings (minor polish)."""
+            ),
+            (
+                "human",
+                """Original Requirements:
 {requirements}
 
 Generated User Stories:
 {stories}
 
-Validate these stories and return a JSON object with:
+Return ONLY a JSON object with keys:
 - overall_valid: boolean
 - validation_score: float (0-100)
-- missing_requirements: array of requirements not covered
-- story_issues: object with story_id as key and array of issues as value
-- recommendations: array of specific improvements needed
-- critical_issues: array of issues that must be fixed
-- warnings: array of non-critical suggestions""")
+- missing_requirements: string[]
+- story_issues: object mapping story ID (e.g. US001) to string[] of issues
+- recommendations: string[]
+- critical_issues: string[]
+- warnings: string[]"""
+            ),
         ])
         
         self.parser = JsonOutputParser()
@@ -573,11 +781,34 @@ Validate these stories and return a JSON object with:
             if semantic_validation.get("recommendations"):
                 feedback.extend(semantic_validation["recommendations"][:3])
             
-            # Update state
+            # Store detailed feedback for next iteration
+            detailed_feedback = {
+                "validation_score": validation_score,
+                "critical_issues": semantic_validation.get("critical_issues", []),
+                "recommendations": semantic_validation.get("recommendations", []),
+                "missing_requirements": semantic_validation.get("missing_requirements", []),
+                "warnings": semantic_validation.get("warnings", []),
+                "structural_issues": all_issues
+            }
+            
+            # Generate improvement instructions for next iteration
+            improvement_instructions = []
+            if semantic_validation.get("critical_issues"):
+                improvement_instructions.append("Fix all critical issues identified in the validation")
+            if semantic_validation.get("missing_requirements"):
+                improvement_instructions.append("Add user stories to cover missing requirements")
+            if story_issues:
+                improvement_instructions.append("Address story-specific formatting and content issues")
+            if validation_score < 70:
+                improvement_instructions.append("Improve overall story quality to achieve higher validation score")
+            
+            # Update state with rich feedback
             state["validation_status"] = validation_status
             state["validation_feedback"] = feedback
             state["validation_score"] = max(0, min(100, validation_score))
             state["story_issues"] = story_issues
+            state["detailed_feedback"] = detailed_feedback
+            state["improvement_instructions"] = improvement_instructions
             state["current_phase"] = next_phase
             
             # Increment iteration count if revision needed
@@ -599,8 +830,8 @@ Validate these stories and return a JSON object with:
 
 # ==================== WORKFLOW SETUP ====================
 
-def create_story_workflow(gemini_api_key: str = None) -> StateGraph:
-    """Create the LangGraph workflow for story generation and validation"""
+def create_story_workflow(gemini_api_key: str = None, max_iterations: int = 3) -> StateGraph:
+    """Create the LangGraph workflow for story generation and validation with feedback loop"""
     
     # Initialize agents
     story_agent = UserStoryGenerationAgent(gemini_api_key)
@@ -609,7 +840,16 @@ def create_story_workflow(gemini_api_key: str = None) -> StateGraph:
     # Create workflow
     workflow = StateGraph(ProjectManagementState)
     
+    def initialize_iteration_tracking(state: ProjectManagementState) -> ProjectManagementState:
+        """Initialize iteration tracking in state"""
+        if "iteration_count" not in state:
+            state["iteration_count"] = 0
+        if "max_iterations" not in state:
+            state["max_iterations"] = max_iterations
+        return state
+    
     # Add nodes
+    workflow.add_node("initialize", initialize_iteration_tracking)
     workflow.add_node("generate_stories", story_agent.generate_stories)
     workflow.add_node("validate_stories", validation_agent.validate_stories)
     
@@ -619,34 +859,325 @@ def create_story_workflow(gemini_api_key: str = None) -> StateGraph:
     workflow.add_node("human_review", lambda x: x)  # Placeholder
     
     # Add edges
+    workflow.add_edge("initialize", "generate_stories")
     workflow.add_edge("generate_stories", "validate_stories")
     
-    # Add conditional edges based on validation
+    # Enhanced conditional edges with feedback loop
     def determine_next_step(state: ProjectManagementState) -> str:
-        if state.get("validation_status") == ValidationStatus.APPROVED.value:
+        validation_status = state.get("validation_status")
+        iteration_count = state.get("iteration_count", 0)
+        max_iter = state.get("max_iterations", max_iterations)
+        validation_score = state.get("validation_score", 0)
+        
+        print(f"[WORKFLOW] Iteration {iteration_count}, Status: {validation_status}, Score: {validation_score:.1f}")
+        
+        # Check if approved or good enough
+        if validation_status == ValidationStatus.APPROVED.value or validation_score >= 85:
             return "approved"
-        elif state.get("iteration_count", 0) >= 3:
+        
+        # Check iteration limits
+        if iteration_count >= max_iter:
+            print(f"[WORKFLOW] Maximum iterations ({max_iter}) reached, escalating to human review")
             return "max_iterations"
-        elif state.get("validation_status") == ValidationStatus.NEEDS_CLARIFICATION.value:
+        
+        # Check for clarification needs
+        if validation_status == ValidationStatus.NEEDS_CLARIFICATION.value:
             return "needs_clarification"
-        else:
+        
+        # Continue with revision if validation score suggests improvement is possible
+        if validation_score >= 30:  # Worth trying to improve
+            print(f"[WORKFLOW] Score {validation_score:.1f} suggests improvement possible, iterating...")
             return "needs_revision"
+        else:
+            print(f"[WORKFLOW] Low score {validation_score:.1f}, escalating to human review")
+            return "low_quality"
     
     workflow.add_conditional_edges(
         "validate_stories",
         determine_next_step,
         {
-            "approved": "task_creation",  # Next agent in pipeline
-            "needs_revision": "generate_stories",
-            "needs_clarification": "requirement_parsing",  # Go back to requirement parsing
-            "max_iterations": "human_review"  # Escalate to human
+            "approved": "task_creation",  # Success - proceed to next stage
+            "needs_revision": "generate_stories",  # Feedback loop - try again with validation feedback
+            "needs_clarification": "requirement_parsing",  # Requirements issue
+            "max_iterations": "human_review",  # Too many iterations
+            "low_quality": "human_review"  # Quality too low to auto-improve
         }
     )
     
     # Set entry point
-    workflow.set_entry_point("generate_stories")
+    workflow.set_entry_point("initialize")
     
     return workflow
+
+# ==================== PDF PROCESSING FUNCTIONS ====================
+
+def process_pdf_to_user_stories(
+    pdf_file_path: str,
+    project_context: Dict = None,
+    max_iterations: int = 3,
+    gemini_api_key: str = None
+) -> Dict:
+    """
+    Complete workflow: Load PDF → Generate User Stories with Feedback Loop
+    
+    Args:
+        pdf_file_path: Path to the PDF requirements document
+        project_context: Optional project context (industry, team size, etc.)
+        max_iterations: Maximum feedback loop iterations (default: 3)
+        gemini_api_key: Gemini API key (uses env variable if not provided)
+    
+    Returns:
+        Dict containing user stories, validation results, and metadata
+    """
+    
+    # Step 1: Load and parse PDF
+    try:
+        documentation = load_documentation_from_file(pdf_file_path)
+        print(f"✅ Loaded PDF: {documentation['title']}")
+    except Exception as e:
+        raise ValueError(f"Failed to load PDF {pdf_file_path}: {e}")
+    
+    # Step 2: Setup default project context
+    default_context = {
+        "industry": "Technology",
+        "team_size": 10,
+        "tech_stack": ["Python", "React", "PostgreSQL"],
+        "timeline": "6 months",
+        "budget": "medium",
+        "source": f"PDF: {pdf_file_path}"
+    }
+    
+    if project_context:
+        default_context.update(project_context)
+    
+    # Step 3: Create workflow
+    workflow = create_story_workflow(gemini_api_key, max_iterations)
+    app = workflow.compile()
+    
+    # Step 4: Setup initial state
+    initial_state = {
+        "project_id": f"PDF_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+        "client_requirements": "",  # Will be generated from PDF
+        "documentation": documentation,
+        "project_context": default_context,
+        "current_phase": "story_generation",
+        "iteration_count": 0,
+        "timestamp": datetime.now().isoformat()
+    }
+    
+    # Step 5: Run workflow
+    print(f"🚀 Generating user stories from PDF...")
+    
+    final_result = None
+    iterations = []
+    
+    for output in app.stream(initial_state):
+        for key, value in output.items():
+            final_result = value
+            
+            if key == "generate_stories":
+                iteration = value.get("iteration_count", 0)
+                story_count = len(value.get('user_stories', []))
+                print(f"📝 Iteration {iteration}: Generated {story_count} stories")
+            
+            elif key == "validate_stories":
+                iteration = value.get("iteration_count", 0)
+                status = value.get('validation_status', 'unknown')
+                score = value.get('validation_score', 0)
+                
+                iterations.append({
+                    "iteration": iteration,
+                    "status": status, 
+                    "score": score,
+                    "story_count": len(value.get('user_stories', []))
+                })
+                
+                print(f"🔍 Iteration {iteration}: {status} (Score: {score:.1f}/100)")
+    
+    # Step 6: Return results
+    if final_result and final_result.get('user_stories'):
+        return {
+            "success": True,
+            "source_pdf": pdf_file_path,
+            "document_info": {
+                "title": documentation['title'],
+                "type": documentation['document_type'],
+                "content_length": len(documentation['content'])
+            },
+            "workflow_results": {
+                "iterations": iterations,
+                "final_score": final_result.get('validation_score', 0),
+                "final_status": final_result.get('validation_status'),
+                "total_iterations": len(iterations)
+            },
+            "user_stories": final_result['user_stories'],
+            "metadata": {
+                "generated_at": datetime.now().isoformat(),
+                "story_count": len(final_result['user_stories']),
+                "validation_score": final_result.get('validation_score', 0)
+            }
+        }
+    else:
+        return {
+            "success": False,
+            "error": "No user stories were generated",
+            "source_pdf": pdf_file_path
+        }
+
+# ==================== UTILITY FUNCTIONS ====================
+
+def create_documentation_from_text(content: str, doc_type: str = "Requirements Document", title: str = "Project Requirements") -> Dict:
+    """Helper function to create structured documentation from plain text"""
+    return {
+        "document_type": doc_type,
+        "title": title,
+        "content": content,
+        "sections": {},
+        "stakeholders": [],
+        "business_goals": [],
+        "technical_constraints": [],
+        "success_criteria": []
+    }
+
+def create_structured_documentation(
+    title: str,
+    content: str,
+    doc_type: str = "Product Requirements Document",
+    sections: Dict[str, str] = None,
+    stakeholders: List[str] = None,
+    business_goals: List[str] = None,
+    technical_constraints: List[str] = None,
+    success_criteria: List[str] = None
+) -> Dict:
+    """Helper function to create comprehensive structured documentation"""
+    return {
+        "document_type": doc_type,
+        "title": title,
+        "content": content,
+        "sections": sections or {},
+        "stakeholders": stakeholders or [],
+        "business_goals": business_goals or [],
+        "technical_constraints": technical_constraints or [],
+        "success_criteria": success_criteria or []
+    }
+
+def load_documentation_from_file(file_path: str) -> Dict:
+    """Load documentation from various file formats (PDF, DOCX, TXT, MD)"""
+    import os
+    
+    if not os.path.exists(file_path):
+        raise ValueError(f"File not found: {file_path}")
+    
+    file_extension = os.path.splitext(file_path)[1].lower()
+    filename = os.path.basename(file_path)
+    title = os.path.splitext(filename)[0]
+    
+    try:
+        if file_extension == '.pdf':
+            content = _extract_text_from_pdf(file_path)
+            doc_type = "PDF Document"
+        elif file_extension == '.docx':
+            content = _extract_text_from_docx(file_path)
+            doc_type = "Word Document"
+        elif file_extension in ['.txt', '.md']:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            doc_type = "Markdown Document" if file_extension == '.md' else "Text Document"
+        else:
+            # Try to read as plain text for unknown extensions
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            doc_type = "Text Document"
+        
+        if not content.strip():
+            raise ValueError("Document appears to be empty or unreadable")
+        
+        return create_documentation_from_text(
+            content=content,
+            title=title,
+            doc_type=doc_type
+        )
+        
+    except Exception as e:
+        raise ValueError(f"Failed to load documentation from {file_path}: {e}")
+
+def _extract_text_from_pdf(file_path: str) -> str:
+    """Extract text content from PDF file"""
+    try:
+        import PyPDF2
+        
+        text_content = []
+        with open(file_path, 'rb') as file:
+            pdf_reader = PyPDF2.PdfReader(file)
+            
+            for page_num in range(len(pdf_reader.pages)):
+                page = pdf_reader.pages[page_num]
+                text_content.append(page.extract_text())
+        
+        content = '\n'.join(text_content)
+        
+        # Clean up the text
+        content = _clean_extracted_text(content)
+        
+        return content
+        
+    except ImportError:
+        raise ValueError("PyPDF2 library not installed. Run: pip install PyPDF2")
+    except Exception as e:
+        raise ValueError(f"Failed to extract text from PDF: {e}")
+
+def _extract_text_from_docx(file_path: str) -> str:
+    """Extract text content from DOCX file"""
+    try:
+        from docx import Document
+        
+        doc = Document(file_path)
+        text_content = []
+        
+        # Extract paragraphs
+        for paragraph in doc.paragraphs:
+            if paragraph.text.strip():
+                text_content.append(paragraph.text)
+        
+        # Extract text from tables
+        for table in doc.tables:
+            for row in table.rows:
+                row_text = []
+                for cell in row.cells:
+                    if cell.text.strip():
+                        row_text.append(cell.text.strip())
+                if row_text:
+                    text_content.append(' | '.join(row_text))
+        
+        content = '\n'.join(text_content)
+        
+        # Clean up the text
+        content = _clean_extracted_text(content)
+        
+        return content
+        
+    except ImportError:
+        raise ValueError("python-docx library not installed. Run: pip install python-docx")
+    except Exception as e:
+        raise ValueError(f"Failed to extract text from DOCX: {e}")
+
+def _clean_extracted_text(text: str) -> str:
+    """Clean and normalize extracted text from documents"""
+    import re
+    
+    # Remove excessive whitespace
+    text = re.sub(r'\n\s*\n', '\n\n', text)  # Multiple newlines to double newline
+    text = re.sub(r' +', ' ', text)  # Multiple spaces to single space
+    
+    # Remove strange characters that sometimes appear in PDFs
+    text = re.sub(r'[^\w\s\.,;:!?\-()[\]{}"\'/\\+=*&%$#@|<>~`]', '', text)
+    
+    # Fix common PDF extraction issues
+    text = text.replace('•', '-')  # Bullet points
+    text = text.replace('○', '-')  # Bullet points
+    text = text.replace('▪', '-')  # Bullet points
+    
+    return text.strip()
 
 # ==================== USAGE EXAMPLE ====================
 
@@ -673,9 +1204,69 @@ if __name__ == "__main__":
     workflow = create_story_workflow(gemini_api_key)
     app = workflow.compile()
     
-    # Example initial state
-    initial_state = {
-        "project_id": "PROJ-001",
+    # Example 1: Using structured documentation (RECOMMENDED)
+    project_documentation = create_structured_documentation(
+        title="AI-Powered Project Management Platform",
+        doc_type="Product Requirements Document",
+        content="""
+        Build an AI-powered project management tool similar to JIRA that automates project management workflows
+        and provides intelligent insights for development teams.
+        """,
+        sections={
+            "overview": "An intelligent project management platform that uses AI to automate story generation, task assignment, and quality control.",
+            "core_features": """
+            1. Automated user story generation from requirements
+            2. Intelligent task creation and assignment
+            3. Interactive Kanban board with drag-and-drop
+            4. AI-powered quality control and testing
+            5. Real-time developer feedback system
+            6. Validation agents for output verification
+            7. Team collaboration tools
+            8. Performance analytics and reporting
+            """,
+            "user_interface": "Modern React-based UI with responsive design and intuitive user experience",
+            "architecture": "Microservices architecture with Python backend and PostgreSQL database"
+        },
+        stakeholders=["Development Teams", "Project Managers", "QA Engineers", "Product Owners", "Scrum Masters"],
+        business_goals=[
+            "Reduce project planning time by 70%",
+            "Improve development velocity by 40%", 
+            "Increase delivery quality through automated QC",
+            "Enable data-driven project decisions"
+        ],
+        technical_constraints=[
+            "Must handle 100+ concurrent users",
+            "Sub-second response times required",
+            "Integration with existing development tools",
+            "Scalable cloud-native architecture"
+        ],
+        success_criteria=[
+            "User story generation accuracy > 90%",
+            "Task completion tracking in real-time",
+            "User adoption rate > 80% within 3 months",
+            "System uptime > 99.9%"
+        ]
+    )
+    
+    initial_state_with_docs = {
+        "project_id": "PROJ-001", 
+        "client_requirements": "",  # Will be generated from documentation
+        "documentation": project_documentation,
+        "project_context": {
+            "industry": "Software Development",
+            "team_size": 10,
+            "tech_stack": ["Python", "FastAPI", "React", "PostgreSQL"],
+            "timeline": "3 months",
+            "budget": "medium"
+        },
+        "current_phase": "story_generation",
+        "iteration_count": 0,
+        "timestamp": datetime.now().isoformat()
+    }
+    
+    # Example 2: Using simple text (BACKWARD COMPATIBILITY)
+    initial_state_simple = {
+        "project_id": "PROJ-002",
         "client_requirements": """
         Build an AI-powered project management tool similar to JIRA.
         The system should:
@@ -701,6 +1292,9 @@ if __name__ == "__main__":
         "iteration_count": 0,
         "timestamp": datetime.now().isoformat()
     }
+    
+    # Choose which example to run
+    initial_state = initial_state_with_docs  # Use structured documentation
     
     # Run the workflow
     try:

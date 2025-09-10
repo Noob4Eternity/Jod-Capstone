@@ -4,3 +4,6 @@ langchain-google-genai
 google-genai
 pydantic
 python-dotenv
+fastapi
+uvicorn
+python-multipart
