@@ -100,6 +100,7 @@ class ProjectManagementState(TypedDict):
     parsed_requirements: Optional[Dict]
     user_stories: Optional[List[Dict]]
     previous_user_stories: Optional[List[Dict]]  # For tracking iterations
+    tasks: Optional[List[Dict]]  # Generated tasks from user stories
     
     # Validation and Feedback Loop
     validation_status: Optional[str]
@@ -828,6 +829,391 @@ Return ONLY a JSON object with keys:
         
         return state
 
+# ==================== TASK GENERATION AGENT ====================
+
+class TaskGenerationAgent:
+    """Agent responsible for generating tasks from validated user stories"""
+    
+    def __init__(self, gemini_api_key: str = None, temperature: float = 0.3):
+        api_key = gemini_api_key or os.getenv("GEMINI_API_KEY")
+        if not api_key:
+            raise ValueError("GEMINI_API_KEY must be provided either as parameter or environment variable")
+        
+        self.llm = ChatGoogleGenerativeAI(
+            model="gemini-2.5-flash",
+            temperature=0.4,
+            google_api_key=api_key
+        )
+        
+        # Optimized batch processing prompt for multiple stories
+        self.batch_task_prompt = ChatPromptTemplate.from_messages([
+            (
+                "system",
+                """You are a Technical Lead decomposing user stories into development tasks.
+
+For each story, generate 3-5 tasks:
+- Backend task (API/database)
+- Frontend task (UI/components) 
+- Testing task (unit/integration tests)
+- Optional: DevOps or documentation task
+
+Each task: 4-16 hours, atomic, includes story_id.
+
+Return JSON array: [{{
+  "story_id": "US001",
+  "title": "Task name",
+  "category": "backend|frontend|testing|devops",
+  "estimated_hours": 8,
+  "dependencies": []
+}}]"""
+            ),
+            (
+                "human",
+                """Stories:
+{stories_formatted}
+
+Tech: {tech_stack}
+
+Generate 3-5 tasks per story. Include story_id field. Return JSON array only."""
+            ),
+        ])
+        
+        # Keep single story prompt as fallback
+        self.single_story_prompt = ChatPromptTemplate.from_messages([
+            (
+                "system",
+                """You are decomposing ONE user story into 3-7 actionable development tasks.
+
+Each task should:
+- Be completable in 0.5-2 days (4-16 hours)
+- Have clear acceptance criteria
+- Include proper dependencies
+- Cover implementation, testing, and documentation
+
+Return JSON array of task objects with: id, story_id, title, description, category, estimated_hours, priority, dependencies, acceptance_criteria, technical_notes"""
+            ),
+            (
+                "human",
+                """USER STORY:
+ID: {story_id}
+Title: {story_title}
+Description: {story_description}
+Acceptance Criteria: {story_criteria}
+Technical Notes: {story_tech_notes}
+
+Tech Stack: {tech_stack}
+Project Context: {context}
+
+Generate 3-7 tasks for this story. Start task IDs from T{task_start:03d}.
+
+Return ONLY JSON array."""
+            ),
+        ])
+        
+        self.parser = JsonOutputParser()
+    
+    def _generate_batch_tasks(self, story_batch: List[Dict], project_context: Dict, starting_task_id: int) -> List[Dict]:
+        """Process multiple stories in a single LLM call for improved performance"""
+        
+        batch_start_time = datetime.now()
+        tech_stack = project_context.get("tech_stack", ["Python", "React", "PostgreSQL"])
+        tech_stack_str = ", ".join(tech_stack)
+        
+        # Format stories concisely for the prompt
+        stories_formatted = []
+        for story in story_batch:
+            story_text = f"{story['id']}: {story['title']} | {story.get('priority', 'medium')} priority"
+            stories_formatted.append(story_text)
+        
+        stories_formatted_str = "\n".join(stories_formatted)
+        
+        try:
+            chain = self.batch_task_prompt | self.llm | self.parser
+            
+            print(f"[TASK_GEN] Batch processing {len(story_batch)} stories...")
+            
+            tasks = chain.invoke({
+                "stories_formatted": stories_formatted_str,
+                "tech_stack": tech_stack_str
+            })
+            
+            # Ensure we have a list
+            if not isinstance(tasks, list):
+                tasks = [tasks] if tasks else []
+            
+            validated_tasks = []
+            task_id_counter = starting_task_id
+            
+            for task in tasks:
+                if isinstance(task, dict):
+                    # Ensure required fields and validate story_id
+                    story_id = task.get("story_id", "")
+                    if not story_id or not any(s["id"] == story_id for s in story_batch):
+                        # Try to infer story_id from task content or assign to first story
+                        story_id = story_batch[0]["id"]
+                    
+                    validated_task = {
+                        "id": f"T{task_id_counter:03d}",
+                        "story_id": story_id,
+                        "title": task.get("title", f"Task for {story_id}"),
+                        "description": task.get("description", task.get("title", "")),
+                        "category": task.get("category", "backend"),
+                        "estimated_hours": min(16, max(4, task.get("estimated_hours", 8))),
+                        "priority": task.get("priority", "medium"),
+                        "dependencies": task.get("dependencies", []),
+                        "acceptance_criteria": task.get("acceptance_criteria", ["Task completed successfully"]),
+                        "technical_notes": task.get("technical_notes", "")
+                    }
+                    validated_tasks.append(validated_task)
+                    task_id_counter += 1
+            
+            elapsed = (datetime.now() - batch_start_time).total_seconds()
+            print(f"[TASK_GEN] Batch completed: {len(story_batch)} stories -> {len(validated_tasks)} tasks in {elapsed:.1f}s")
+            
+            return validated_tasks
+            
+        except Exception as e:
+            print(f"[TASK_GEN_ERROR] Batch processing failed: {e}")
+            # Fallback to individual story processing
+            return self._fallback_batch_processing(story_batch, project_context, starting_task_id)
+    
+    def _fallback_batch_processing(self, story_batch: List[Dict], project_context: Dict, starting_task_id: int) -> List[Dict]:
+        """Fallback to individual story processing if batch fails"""
+        print(f"[TASK_GEN] Falling back to individual processing for {len(story_batch)} stories")
+        
+        all_tasks = []
+        task_counter = starting_task_id - 1
+        
+        for story in story_batch:
+            try:
+                story_tasks = self._decompose_story_to_tasks(story, project_context, task_counter)
+                task_counter += len(story_tasks)
+                all_tasks.extend(story_tasks)
+            except Exception as e:
+                print(f"[TASK_GEN_ERROR] Individual fallback failed for {story['id']}: {e}")
+                # Use basic fallback tasks
+                fallback_tasks = self._create_fallback_tasks(story, task_counter)
+                task_counter += len(fallback_tasks)
+                all_tasks.extend(fallback_tasks)
+        
+        return all_tasks
+    
+    def _decompose_story_to_tasks(self, story: Dict, project_context: Dict, task_counter: int) -> List[Dict]:
+        """Decompose a single user story into multiple tasks (fallback method)"""
+        
+        tech_stack = project_context.get("tech_stack", ["Python", "React", "PostgreSQL"])
+        tech_stack_str = ", ".join(tech_stack)
+        
+        try:
+            chain = self.single_story_prompt | self.llm | self.parser
+            
+            tasks = chain.invoke({
+                "story_id": story["id"],
+                "story_title": story["title"],
+                "story_description": story["description"],
+                "story_criteria": "; ".join(story.get("acceptance_criteria", [])),
+                "story_tech_notes": story.get("technical_notes", ""),
+                "tech_stack": tech_stack_str,
+                "context": json.dumps(project_context),
+                "task_start": task_counter + 1
+            })
+            
+            if not isinstance(tasks, list):
+                tasks = [tasks] if tasks else []
+            
+            validated_tasks = []
+            for i, task in enumerate(tasks):
+                if isinstance(task, dict):
+                    validated_task = {
+                        "id": task.get("id", f"T{task_counter + i + 1:03d}"),
+                        "story_id": story["id"],
+                        "title": task.get("title", f"Task for {story['id']}"),
+                        "description": task.get("description", ""),
+                        "category": task.get("category", "backend"),
+                        "estimated_hours": min(16, max(4, task.get("estimated_hours", 8))),
+                        "priority": task.get("priority", "medium"),
+                        "dependencies": task.get("dependencies", []),
+                        "acceptance_criteria": task.get("acceptance_criteria", []),
+                        "technical_notes": task.get("technical_notes", "")
+                    }
+                    validated_tasks.append(validated_task)
+            
+            return validated_tasks[:7]
+            
+        except Exception as e:
+            print(f"[TASK_GEN_ERROR] Failed to decompose story {story['id']}: {e}")
+            return self._create_fallback_tasks(story, task_counter)
+    
+    def _create_fallback_tasks(self, story: Dict, task_counter: int) -> List[Dict]:
+        """Create basic fallback tasks when LLM decomposition fails"""
+        story_id = story["id"]
+        base_title = story["title"].replace("As a ", "").replace(", I want ", " - ").replace(" so that ", " - ")
+        
+        fallback_tasks = [
+            {
+                "id": f"T{task_counter + 1:03d}",
+                "story_id": story_id,
+                "title": f"Backend implementation for {base_title}",
+                "description": f"Implement backend logic and API endpoints for {story['description']}",
+                "category": "backend",
+                "estimated_hours": 12,
+                "priority": story.get("priority", "medium"),
+                "dependencies": [],
+                "acceptance_criteria": story.get("acceptance_criteria", [])[:2],
+                "technical_notes": story.get("technical_notes", "")
+            },
+            {
+                "id": f"T{task_counter + 2:03d}",
+                "story_id": story_id,
+                "title": f"Frontend implementation for {base_title}",
+                "description": f"Create UI components and user interface for {story['description']}",
+                "category": "frontend",
+                "estimated_hours": 10,
+                "priority": story.get("priority", "medium"),
+                "dependencies": [f"T{task_counter + 1:03d}"],
+                "acceptance_criteria": story.get("acceptance_criteria", [])[2:4] if len(story.get("acceptance_criteria", [])) > 2 else ["UI displays correctly", "User interactions work as expected"],
+                "technical_notes": "Ensure responsive design and accessibility"
+            },
+            {
+                "id": f"T{task_counter + 3:03d}",
+                "story_id": story_id,
+                "title": f"Testing for {base_title}",
+                "description": f"Write and execute tests for {story['description']}",
+                "category": "testing",
+                "estimated_hours": 6,
+                "priority": "medium",
+                "dependencies": [f"T{task_counter + 1:03d}", f"T{task_counter + 2:03d}"],
+                "acceptance_criteria": ["Unit tests pass", "Integration tests pass", "Code coverage > 80%"],
+                "technical_notes": "Include both unit and integration tests"
+            }
+        ]
+        
+        return fallback_tasks
+    
+    def _optimize_dependencies(self, all_tasks: List[Dict]) -> List[Dict]:
+        """Post-process tasks to optimize dependencies and remove duplicates"""
+        
+        # Create task ID mapping for validation
+        task_ids = {task["id"] for task in all_tasks}
+        
+        # Remove duplicate tasks based on title similarity
+        unique_tasks = []
+        seen_titles = set()
+        
+        for task in all_tasks:
+            title_key = task["title"].lower().strip()
+            if title_key not in seen_titles:
+                seen_titles.add(title_key)
+                unique_tasks.append(task)
+            else:
+                print(f"[TASK_OPT] Removed duplicate task: {task['title']}")
+        
+        # Fix dependencies to only reference existing tasks
+        for task in unique_tasks:
+            if task.get("dependencies"):
+                valid_deps = [dep for dep in task["dependencies"] if dep in task_ids]
+                invalid_deps = [dep for dep in task["dependencies"] if dep not in task_ids]
+                
+                if invalid_deps:
+                    print(f"[TASK_OPT] Removed invalid dependencies from {task['id']}: {invalid_deps}")
+                
+                task["dependencies"] = valid_deps
+        
+        return unique_tasks
+    
+    def generate_tasks(self, state: ProjectManagementState) -> ProjectManagementState:
+        """Main method to generate tasks from validated user stories using intelligent batching"""
+        start_time = datetime.now()
+        
+        try:
+            user_stories = state.get("user_stories", [])
+            project_context = state.get("project_context", {})
+            
+            if not user_stories:
+                state["last_error"] = "No user stories available for task generation"
+                state["current_phase"] = "error"
+                return state
+            
+            num_stories = len(user_stories)
+            print(f"[TASK_GEN] Generating tasks for {num_stories} user stories using batch processing")
+            
+            # Intelligent batching logic
+            if num_stories <= 7:
+                # Single batch for small sets
+                batch_size = num_stories
+                num_batches = 1
+                print(f"[TASK_GEN] Using single batch processing for {num_stories} stories")
+            else:
+                # Multiple batches of 7 stories each for better efficiency
+                batch_size = 7
+                num_batches = (num_stories + batch_size - 1) // batch_size
+                print(f"[TASK_GEN] Processing {num_stories} stories in {num_batches} batches of {batch_size}")
+            
+            all_tasks = []
+            task_id_counter = 1
+            
+            # Process stories in batches
+            for i in range(num_batches):
+                batch_start_idx = i * batch_size
+                batch_end_idx = min((i + 1) * batch_size, num_stories)
+                story_batch = user_stories[batch_start_idx:batch_end_idx]
+                
+                print(f"[TASK_GEN] Processing batch {i+1}/{num_batches}: stories {batch_start_idx+1}-{batch_end_idx}")
+                
+                # Generate tasks for this batch
+                batch_tasks = self._generate_batch_tasks(story_batch, project_context, task_id_counter)
+                
+                # Update task counter for next batch
+                task_id_counter += len(batch_tasks)
+                all_tasks.extend(batch_tasks)
+            
+            # Ensure all stories have tasks (fallback for missing ones)
+            stories_with_tasks = {task["story_id"] for task in all_tasks}
+            stories_without_tasks = [story for story in user_stories if story["id"] not in stories_with_tasks]
+            
+            if stories_without_tasks:
+                print(f"[TASK_GEN] Generating fallback tasks for {len(stories_without_tasks)} stories without tasks")
+                for story in stories_without_tasks:
+                    fallback_tasks = self._create_fallback_tasks(story, task_id_counter - 1)
+                    task_id_counter += len(fallback_tasks)
+                    all_tasks.extend(fallback_tasks)
+            
+            # Ensure sequential task IDs and optimize dependencies
+            for i, task in enumerate(all_tasks):
+                task["id"] = f"T{i + 1:03d}"
+            
+            # Optimize dependencies and remove duplicates
+            all_tasks = self._optimize_dependencies(all_tasks)
+            
+            # Update state
+            state["tasks"] = all_tasks
+            state["current_phase"] = "task_assignment"
+            
+            processing_time = (datetime.now() - start_time).total_seconds()
+            if "processing_time" not in state:
+                state["processing_time"] = {}
+            state["processing_time"]["task_generation"] = processing_time
+            
+            # Performance summary
+            avg_time_per_story = processing_time / num_stories if num_stories > 0 else 0
+            print(f"[TASK_GEN] ✅ Generated {len(all_tasks)} tasks for {num_stories} stories in {processing_time:.1f}s")
+            print(f"[TASK_GEN] ⚡ Performance: {avg_time_per_story:.1f}s per story, {num_batches} batches")
+            
+            # Verify all stories have tasks
+            final_stories_with_tasks = {task["story_id"] for task in all_tasks}
+            if len(final_stories_with_tasks) != num_stories:
+                print(f"[TASK_GEN] ⚠️  Warning: {num_stories - len(final_stories_with_tasks)} stories still missing tasks")
+            
+        except Exception as e:
+            state["last_error"] = f"Task generation failed: {str(e)}"
+            state["tasks"] = []
+            state["current_phase"] = "error"
+            print(f"[TASK_GEN_ERROR] {str(e)}")
+            import traceback
+            traceback.print_exc()
+            
+        return state
+
 # ==================== WORKFLOW SETUP ====================
 
 def create_story_workflow(gemini_api_key: str = None, max_iterations: int = 3) -> StateGraph:
@@ -836,6 +1222,7 @@ def create_story_workflow(gemini_api_key: str = None, max_iterations: int = 3) -
     # Initialize agents
     story_agent = UserStoryGenerationAgent(gemini_api_key)
     validation_agent = UserStoryValidationAgent(gemini_api_key)
+    task_agent = TaskGenerationAgent(gemini_api_key)
     
     # Create workflow
     workflow = StateGraph(ProjectManagementState)
@@ -852,9 +1239,10 @@ def create_story_workflow(gemini_api_key: str = None, max_iterations: int = 3) -
     workflow.add_node("initialize", initialize_iteration_tracking)
     workflow.add_node("generate_stories", story_agent.generate_stories)
     workflow.add_node("validate_stories", validation_agent.validate_stories)
+    workflow.add_node("generate_tasks", task_agent.generate_tasks)
     
     # Add placeholder nodes for next steps (implement these later)
-    workflow.add_node("task_creation", lambda x: x)  # Placeholder
+    workflow.add_node("task_assignment", lambda x: x)  # Placeholder
     workflow.add_node("requirement_parsing", lambda x: x)  # Placeholder
     workflow.add_node("human_review", lambda x: x)  # Placeholder
     
@@ -875,10 +1263,14 @@ def create_story_workflow(gemini_api_key: str = None, max_iterations: int = 3) -
         if validation_status == ValidationStatus.APPROVED.value or validation_score >= 85:
             return "approved"
         
-        # Check iteration limits
+        # If we've reached max iterations but have decent stories, proceed to task generation
         if iteration_count >= max_iter:
-            print(f"[WORKFLOW] Maximum iterations ({max_iter}) reached, escalating to human review")
-            return "max_iterations"
+            if validation_score >= 70:  # Good enough to proceed
+                print(f"[WORKFLOW] Maximum iterations ({max_iter}) reached, but score {validation_score:.1f} is acceptable. Proceeding to task generation.")
+                return "approved"
+            else:
+                print(f"[WORKFLOW] Maximum iterations ({max_iter}) reached, escalating to human review")
+                return "max_iterations"
         
         # Check for clarification needs
         if validation_status == ValidationStatus.NEEDS_CLARIFICATION.value:
@@ -896,13 +1288,16 @@ def create_story_workflow(gemini_api_key: str = None, max_iterations: int = 3) -
         "validate_stories",
         determine_next_step,
         {
-            "approved": "task_creation",  # Success - proceed to next stage
+            "approved": "generate_tasks",  # Success - proceed to task generation
             "needs_revision": "generate_stories",  # Feedback loop - try again with validation feedback
             "needs_clarification": "requirement_parsing",  # Requirements issue
             "max_iterations": "human_review",  # Too many iterations
             "low_quality": "human_review"  # Quality too low to auto-improve
         }
     )
+    
+    # Add edge from task generation to task assignment
+    workflow.add_edge("generate_tasks", "task_assignment")
     
     # Set entry point
     workflow.set_entry_point("initialize")

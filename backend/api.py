@@ -44,6 +44,7 @@ class GenerationResponse(BaseModel):
     success: bool
     project_id: str
     user_stories: Optional[list]
+    tasks: Optional[list]
     validation_score: Optional[float]
     iterations: Optional[int]
     status: Optional[str]
@@ -89,6 +90,7 @@ def _run_text_flow(req: TextGenerationRequest) -> Dict[str, Any]:
         "success": True,
         "project_id": req.project_id,
         "user_stories": final_result.get("user_stories"),
+        "tasks": final_result.get("tasks"),
         "validation_score": final_result.get("validation_score"),
         "iterations": len(iterations_meta),
         "status": final_result.get("validation_status")
@@ -147,6 +149,7 @@ async def generate_from_pdf(
                 success=False,
                 project_id=project_id or data.get("workflow_results", {}).get("project_id", "PDF"),
                 user_stories=None,
+                tasks=None,
                 validation_score=None,
                 iterations=data.get("workflow_results", {}).get("total_iterations"),
                 status=data.get("workflow_results", {}).get("final_status"),
@@ -157,6 +160,7 @@ async def generate_from_pdf(
             success=True,
             project_id=project_id or data.get("workflow_results", {}).get("project_id", "PDF"),
             user_stories=data.get("user_stories"),
+            tasks=data.get("tasks"),
             validation_score=data.get("workflow_results", {}).get("final_score"),
             iterations=data.get("workflow_results", {}).get("total_iterations"),
             status=data.get("workflow_results", {}).get("final_status")
