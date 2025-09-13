@@ -1,12 +1,12 @@
 """
 User Story Generation and Validation Agents for AI Project Management System
-Using LangGraph State Management and Gemini-2.0-flash
+Using LangGraph State Management and Gemini-2.0-flash - FIXED MULTIMODAL VERSION
 """
 
 import json
 import os
 import re
-from typing import TypedDict, List, Dict, Optional, Any
+from typing import TypedDict, List, Dict, Optional, Any, Union
 from datetime import datetime
 from enum import Enum
 from dotenv import load_dotenv
@@ -18,8 +18,6 @@ from langgraph.graph import StateGraph, END
 
 # ==================== CONSTANTS / SCHEMA (API-READY) ====================
 
-# JSON schema used to guide LLM output (kept simple for token efficiency). When converting to an API
-# this can be exported so clients know the contract.
 USER_STORY_JSON_SCHEMA = r"""{
     "type": "array",
     "items": {
@@ -54,40 +52,6 @@ class ValidationStatus(Enum):
     NEEDS_REVISION = "needs_revision"
     NEEDS_CLARIFICATION = "needs_clarification"
 
-class UserStory(BaseModel):
-    """Schema for a single user story"""
-    id: str = Field(description="Unique identifier (e.g., US001)")
-    title: str = Field(description="User story in 'As a... I want... So that...' format")
-    description: str = Field(description="Detailed description of the feature")
-    acceptance_criteria: List[str] = Field(description="List of acceptance criteria")
-    priority: str = Field(description="Priority level: high, medium, or low")
-    estimated_points: int = Field(description="Story points (1, 2, 3, 5, 8, 13)")
-    dependencies: List[str] = Field(description="IDs of dependent stories")
-    technical_notes: str = Field(description="Technical implementation notes")
-    
-    @field_validator('priority')
-    def validate_priority(cls, v):
-        if v not in ['high', 'medium', 'low']:
-            raise ValueError('Priority must be high, medium, or low')
-        return v
-    
-    @field_validator('estimated_points')
-    def validate_points(cls, v):
-        if v not in [1, 2, 3, 5, 8, 13]:
-            raise ValueError('Story points must follow Fibonacci sequence: 1, 2, 3, 5, 8, 13')
-        return v
-
-class DocumentationInput(BaseModel):
-    """Schema for documentation input"""
-    document_type: str = Field(description="Type of documentation: PRD, BRD, Technical Spec, etc.")
-    title: str = Field(description="Document title")
-    content: str = Field(description="Main document content")
-    sections: Optional[Dict[str, str]] = Field(description="Structured sections (overview, features, requirements, etc.)", default={})
-    stakeholders: Optional[List[str]] = Field(description="Key stakeholders mentioned", default=[])
-    business_goals: Optional[List[str]] = Field(description="Business objectives", default=[])
-    technical_constraints: Optional[List[str]] = Field(description="Technical limitations or requirements", default=[])
-    success_criteria: Optional[List[str]] = Field(description="Definition of success", default=[])
-
 class ProjectManagementState(TypedDict):
     """Shared state for all agents in the workflow"""
     # Input - Enhanced to support documentation
@@ -118,10 +82,73 @@ class ProjectManagementState(TypedDict):
     processing_time: Optional[Dict[str, float]]
     timestamp: str
 
-# ==================== USER STORY GENERATION AGENT ====================
+# ==================== UTILITY FUNCTIONS FOR TYPE SAFETY ====================
 
-class UserStoryGenerationAgent:
-    """Agent responsible for generating user stories from client requirements"""
+def safe_string_extract(obj: Any) -> str:
+    """Safely extract string from various object types"""
+    if isinstance(obj, str):
+        return obj
+    elif isinstance(obj, dict):
+        # Try common string fields in dictionaries
+        for key in ['text', 'content', 'description', 'title', 'value']:
+            if key in obj and isinstance(obj[key], str):
+                return obj[key]
+        # Fall back to string representation
+        return str(obj)
+    elif isinstance(obj, (list, tuple)):
+        # Join list elements if they're strings
+        string_items = [safe_string_extract(item) for item in obj if item]
+        return ' '.join(string_items)
+    elif obj is None:
+        return ""
+    else:
+        return str(obj)
+
+def safe_list_extract(obj: Any) -> List[str]:
+    """Safely extract list of strings from various object types"""
+    if isinstance(obj, list):
+        return [safe_string_extract(item) for item in obj if item]
+    elif isinstance(obj, str):
+        # Split string by common delimiters
+        if ',' in obj:
+            return [item.strip() for item in obj.split(',') if item.strip()]
+        elif ';' in obj:
+            return [item.strip() for item in obj.split(';') if item.strip()]
+        else:
+            return [obj] if obj.strip() else []
+    elif obj is None:
+        return []
+    else:
+        return [safe_string_extract(obj)]
+
+def normalize_analysis_data(analysis: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize analysis data to ensure consistent types"""
+    normalized = {}
+    
+    # Define expected fields and their types
+    field_configs = {
+        'core_features': (list, []),
+        'stakeholders': (list, ['user']),
+        'technical_constraints': (list, []),
+        'business_goals': (list, []),
+        'conflicts': (list, []),
+        'gaps': (list, [])
+    }
+    
+    for field, (expected_type, default_value) in field_configs.items():
+        raw_value = analysis.get(field, default_value)
+        
+        if expected_type == list:
+            normalized[field] = safe_list_extract(raw_value)
+        else:
+            normalized[field] = default_value
+    
+    return normalized
+
+# ==================== ENHANCED USER STORY GENERATION AGENT ====================
+
+class MultimodalUserStoryGenerationAgent:
+    """Enhanced agent for generating user stories from multimodal inputs (text + PDF)"""
     
     def __init__(self, gemini_api_key: str = None, temperature: float = 0.3):
         api_key = gemini_api_key or os.getenv("GEMINI_API_KEY")
@@ -134,51 +161,68 @@ class UserStoryGenerationAgent:
             google_api_key=api_key
         )
         
-        self.story_prompt = ChatPromptTemplate.from_messages([
+        # Enhanced multimodal story generation prompt
+        self.multimodal_story_prompt = ChatPromptTemplate.from_messages([
             (
                 "system",
-                """You are an expert Product Manager + Agile BA generating a HIGH-QUALITY, VALIDATION-READY backlog of user stories.
+                """You are an expert Product Manager + Agile BA generating HIGH-QUALITY user stories from MULTIMODAL requirements.
 
-PRIMARY OBJECTIVE: Produce user stories that will pass a strict validator early (format, INVEST, coverage, sizing, NFR inclusion).
+You receive requirements from multiple sources with different priorities:
+1. PRIMARY REQUIREMENTS (user text input) - HIGHEST PRIORITY
+2. SUPPORTING DOCUMENTATION (PDF content) - CONTEXT & REFERENCE
+3. PROJECT CONTEXT - TECHNICAL & BUSINESS CONSTRAINTS
 
-STRICT OUTPUT CONTRACT:
+MULTIMODAL PROCESSING RULES:
+- PRIMARY requirements take precedence over document content
+- Use documents to add context, clarify ambiguities, and fill gaps
+- Identify and resolve conflicts between sources (favor primary requirements)
+- Extract stakeholders, constraints, and success criteria from all sources
+- Generate stories that satisfy primary requirements while incorporating relevant document insights
 
-JSON SCHEMA (guidance – conform conceptually):
-{json_schema}
+OUTPUT CONTRACT: {json_schema}
 
-PRE-EMISSION INTERNAL STEPS (do silently):
-1. Decompose requirements into atomic requirement_units (not output).
-2. Map each requirement_unit -> at least one story.
-3. Run self_check: FORMAT_OK, MIN_CRITERIA(>=3), INVEST_OK, NO_DUP_IDS, NO_CIRCULAR_DEPS, NFR_COVERED (if implied), COVERAGE_COMPLETE (no obvious uncovered major feature nouns), SIZING_OK (<=13), FEEDBACK_APPLIED.
-4. If any check fails, silently revise before output.
+QUALITY STANDARDS:
+- Format: "As a [persona], I want [capability] so that [benefit]"
+- Acceptance Criteria: 3-7 measurable, testable criteria per story
+- Dependencies: Valid story IDs only, no circular dependencies
+- Technical Notes: Actionable implementation guidance
+- Coverage: Address ALL primary requirements and relevant document features
 
-ITERATIONS:
+SCORING ALIGNMENT (100 points):
+Format(15) + Completeness(20) + Requirements Coverage(25) + Source Integration(10) + NFR Coverage(10) + Dependencies(10) + Acceptance Criteria Quality(10)
 
-TECHNICAL NOTES must provide actionable implementation hints (APIs, data, validation, security or performance considerations).
-
-SCORING ALIGNMENT HINTS:
-Format(15) + Completeness(20) + Coverage(25) + NFR(10) + Consistency & Dependencies(10) + Sizing(10) + Acceptance Criteria Quality(10).
-
-Return ONLY the JSON array of story objects. No commentary."""
+Return ONLY the JSON array of story objects."""
             ),
             (
                 "human",
-                """SOURCE REQUIREMENTS / DOCUMENTATION:
-{requirements}
+                """MULTIMODAL REQUIREMENTS INPUT:
 
-VALIDATION / FEEDBACK CONTEXT (may be empty if first iteration):
-{feedback_section}
+=== PRIMARY REQUIREMENTS (User Input - HIGHEST PRIORITY) ===
+{primary_requirements}
 
-PROJECT CONTEXT:
+=== SUPPORTING DOCUMENTATION (PDF Content - Context & Reference) ===
+{document_content}
+
+=== SOURCE ANALYSIS ===
+{source_analysis}
+
+=== CONFLICT RESOLUTION ===
+{conflict_resolution}
+
+=== PROJECT CONTEXT ===
 {project_context}
 
+=== VALIDATION FEEDBACK (if applicable) ===
+{feedback_section}
+
 INSTRUCTIONS:
-1. Respect explicit terminology in requirements; do not invent unrelated features.
-2. Use personas derived from stakeholders / roles mentioned (fallback: user, admin, system administrator, project manager, QA engineer).
-3. Acceptance criteria: Prefer measurable, avoid vague verbs ("optimize" alone unacceptable).
-4. Security / performance / scalability / reliability included if implied even indirectly.
-5. Avoid epics: if description covers multiple unrelated capabilities, split into multiple stories.
-6. Keep language concise and implementation-agnostic except inside technical_notes.
+1. Prioritize PRIMARY REQUIREMENTS as the main specification
+2. Use SUPPORTING DOCUMENTATION to enhance, clarify, and provide context
+3. Resolve any conflicts between sources (favor primary requirements)
+4. Extract personas from all sources (stakeholders, roles mentioned)
+5. Include security/performance/scalability if implied in any source
+6. Generate comprehensive technical notes incorporating insights from all sources
+7. Ensure all primary requirements are fully covered
 {iteration_instructions}
 
 OUTPUT: JSON array ONLY. No surrounding text.
@@ -186,81 +230,275 @@ OUTPUT: JSON array ONLY. No surrounding text.
             ),
         ])
         
-        self.parser = JsonOutputParser()
+        # Content analysis prompt for multimodal processing
+        self.content_analysis_prompt = ChatPromptTemplate.from_messages([
+            (
+                "system",
+                """Analyze multimodal requirements input to extract key information for story generation.
+
+IMPORTANT: Return all data as simple strings and arrays of strings only. No nested objects.
+
+Extract and categorize:
+1. Core Features: Main functionalities required (return as array of strings)
+2. Stakeholders: All user types, roles mentioned across sources (return as array of strings)
+3. Technical Constraints: Technology, performance, security requirements (return as array of strings)
+4. Business Goals: Objectives, success criteria, KPIs (return as array of strings)
+5. Conflicts: Any contradictions between primary and document sources (return as array of strings)
+6. Gaps: Missing information that needs clarification (return as array of strings)
+
+Return structured analysis as JSON with arrays of strings only."""
+            ),
+            (
+                "human",
+                """PRIMARY REQUIREMENTS:
+{primary_text}
+
+DOCUMENT CONTENT:
+{document_text}
+
+Analyze and return JSON with: core_features, stakeholders, technical_constraints, business_goals, conflicts, gaps
+All fields must be arrays of strings. No nested objects or complex data structures."""
+            ),
+        ])
         
-    def _parse_documentation(self, state: ProjectManagementState) -> str:
-        """Parse documentation input and convert to requirements format"""
-        # Check if we have structured documentation
+        self.parser = JsonOutputParser()
+    
+    def _parse_multimodal_documentation(self, state: ProjectManagementState) -> Dict[str, Any]:
+        """
+        Parse and organize multimodal content by source type and priority.
+        Returns structured analysis for intelligent story generation.
+        """
+        print(f"[DEBUG] === PARSING MULTIMODAL INPUT ===")
+        print(f"[DEBUG] State keys: {list(state.keys())}")
+        print(f"[DEBUG] client_requirements length: {len(state.get('client_requirements', ''))}")
+        print(f"[DEBUG] documentation exists: {bool(state.get('documentation'))}")
+        
+        # Extract different content sources
+        primary_requirements = ""
+        document_content = ""
+        source_metadata = {
+            "has_primary_text": False,
+            "has_documents": False,
+            "document_count": 0,
+            "content_distribution": {}
+        }
+        
+        # Check for structured documentation (from unified API)
         if state.get("documentation"):
             doc = state["documentation"]
+            full_content = doc.get("content", "")
             
-            # Build comprehensive requirements from documentation
-            requirements_parts = []
+            print(f"[DEBUG] documentation content length: {len(full_content)}")
+            print(f"[DEBUG] content preview: {full_content[:300]}...")
             
-            # Add document header
-            if doc.get("title"):
-                requirements_parts.append(f"Project: {doc['title']}")
-            if doc.get("document_type"):
-                requirements_parts.append(f"Document Type: {doc['document_type']}")
-            
-            # Add main content
-            if doc.get("content"):
-                requirements_parts.append("\n=== MAIN REQUIREMENTS ===")
-                requirements_parts.append(doc["content"])
-            
-            # Add structured sections
-            if doc.get("sections"):
-                for section_name, section_content in doc["sections"].items():
-                    requirements_parts.append(f"\n=== {section_name.upper()} ===")
-                    requirements_parts.append(section_content)
-            
-            # Add business context
-            if doc.get("business_goals"):
-                requirements_parts.append("\n=== BUSINESS GOALS ===")
-                for goal in doc["business_goals"]:
-                    requirements_parts.append(f"- {goal}")
-            
-            # Add stakeholders
-            if doc.get("stakeholders"):
-                requirements_parts.append("\n=== STAKEHOLDERS ===")
-                requirements_parts.append(f"Key stakeholders: {', '.join(doc['stakeholders'])}")
-            
-            # Add technical constraints
-            if doc.get("technical_constraints"):
-                requirements_parts.append("\n=== TECHNICAL CONSTRAINTS ===")
-                for constraint in doc["technical_constraints"]:
-                    requirements_parts.append(f"- {constraint}")
-            
-            # Add success criteria
-            if doc.get("success_criteria"):
-                requirements_parts.append("\n=== SUCCESS CRITERIA ===")
-                for criteria in doc["success_criteria"]:
-                    requirements_parts.append(f"- {criteria}")
-            
-            return "\n".join(requirements_parts)
+            # Parse structured multimodal content
+            if "=== PROJECT REQUIREMENTS (TEXT) ===" in full_content:
+                print("[DEBUG] ✓ Found multimodal structure")
+                # Split multimodal content
+                parts = full_content.split("=== PROJECT REQUIREMENTS (TEXT) ===")
+                if len(parts) > 1:
+                    # Extract primary requirements
+                    primary_section = parts[1].split("=== DOCUMENT:")[0]
+                    primary_requirements = primary_section.strip()
+                    source_metadata["has_primary_text"] = True
+                    
+                    # Extract document sections
+                    document_sections = []
+                    doc_parts = full_content.split("=== DOCUMENT:")
+                    for i, part in enumerate(doc_parts[1:], 1):
+                        document_sections.append(f"Document {i}: {part.strip()}")
+                        source_metadata["document_count"] += 1
+                    
+                    if document_sections:
+                        document_content = "\n\n".join(document_sections)
+                        source_metadata["has_documents"] = True
+            else:
+                print("[DEBUG] ✗ No multimodal structure found - treating as document-only")
+                # Single source content (likely PDF only) - treat as primary requirements
+                primary_requirements = full_content
+                source_metadata["has_primary_text"] = True
+                source_metadata["document_count"] = 1
         
-        # Fallback to original client_requirements
-        return state.get("client_requirements", "")
+        # Fallback to client_requirements (backward compatibility)
+        if not primary_requirements and not document_content:
+            primary_requirements = state.get("client_requirements", "")
+            source_metadata["has_primary_text"] = bool(primary_requirements)
+            print(f"[DEBUG] Using client_requirements fallback: {len(primary_requirements)} chars")
+        
+        # Calculate content distribution
+        total_length = len(primary_requirements) + len(document_content)
+        if total_length > 0:
+            source_metadata["content_distribution"] = {
+                "primary_percentage": len(primary_requirements) / total_length * 100,
+                "document_percentage": len(document_content) / total_length * 100
+            }
+        
+        print(f"[DEBUG] Final primary_requirements: {len(primary_requirements)} chars")
+        print(f"[DEBUG] Final document_content: {len(document_content)} chars")
+        print(f"[DEBUG] Source metadata: {source_metadata}")
+        
+        return {
+            "primary_requirements": primary_requirements,
+            "document_content": document_content,
+            "source_metadata": source_metadata,
+            "project_context": state.get("project_context", {})
+        }
     
-    def _format_feedback_for_prompt(self, state: ProjectManagementState) -> tuple:
-        """Format validation feedback for inclusion in the generation prompt"""
+    def _analyze_multimodal_content(self, primary_text: str, document_text: str) -> Dict[str, Any]:
+        """
+        Analyze multimodal content to extract structured insights for story generation.
+        Returns analysis of features, stakeholders, conflicts, etc.
+        """
+        if not primary_text and not document_text:
+            return normalize_analysis_data({
+                "core_features": [],
+                "stakeholders": ["user", "administrator"],
+                "technical_constraints": [],
+                "business_goals": [],
+                "conflicts": [],
+                "gaps": ["No requirements provided"]
+            })
+        
+        try:
+            chain = self.content_analysis_prompt | self.llm | self.parser
+            analysis = chain.invoke({
+                "primary_text": primary_text or "No primary text provided",
+                "document_text": document_text or "No document content provided"
+            })
+            
+            # Normalize the analysis to ensure consistent types
+            normalized_analysis = normalize_analysis_data(analysis)
+            
+            print(f"[CONTENT_ANALYSIS] Extracted {len(normalized_analysis.get('core_features', []))} features")
+            print(f"[CONTENT_ANALYSIS] Identified {len(normalized_analysis.get('stakeholders', []))} stakeholders")
+            
+            return normalized_analysis
+            
+        except Exception as e:
+            print(f"[CONTENT_ANALYSIS_ERROR] {e}")
+            # Return basic analysis on failure
+            return normalize_analysis_data({
+                "core_features": ["Core functionality from requirements"],
+                "stakeholders": ["user", "administrator"],
+                "technical_constraints": [],
+                "business_goals": [],
+                "conflicts": [f"Analysis failed: {str(e)}"],
+                "gaps": ["Manual review recommended"]
+            })
+    
+    def _resolve_source_conflicts(self, analysis: Dict[str, Any], primary_text: str, document_text: str) -> str:
+        """
+        Generate conflict resolution guidance for the LLM prompt.
+        """
+        conflicts = analysis.get("conflicts", [])
+        
+        if not conflicts:
+            return "No conflicts detected between sources. Integrate all requirements harmoniously."
+        
+        resolution_guidance = ["CONFLICTS DETECTED - RESOLUTION STRATEGY:"]
+        
+        for i, conflict in enumerate(conflicts, 1):
+            conflict_str = safe_string_extract(conflict)
+            resolution_guidance.append(f"{i}. CONFLICT: {conflict_str}")
+            resolution_guidance.append(f"   RESOLUTION: Prioritize primary requirements, use documents for context only")
+        
+        resolution_guidance.append("\nGENERAL RULE: When in doubt, favor explicit primary requirements over document implications.")
+        
+        return "\n".join(resolution_guidance)
+    
+    def _create_source_analysis_summary(self, analysis: Dict[str, Any], source_metadata: Dict[str, Any]) -> str:
+        """
+        Create a summary of source analysis for the LLM prompt.
+        """
+        summary_parts = []
+        
+        try:
+            # Source composition
+            if source_metadata.get("has_primary_text") and source_metadata.get("has_documents"):
+                dist = source_metadata.get("content_distribution", {})
+                summary_parts.append(f"MULTIMODAL INPUT: {dist.get('primary_percentage', 0):.0f}% primary text, {dist.get('document_percentage', 0):.0f}% documents")
+            elif source_metadata.get("has_primary_text"):
+                summary_parts.append("INPUT TYPE: Primary text requirements only")
+            elif source_metadata.get("has_documents"):
+                summary_parts.append(f"INPUT TYPE: Document-based requirements ({source_metadata.get('document_count', 1)} documents)")
+            
+            # Key extracted elements
+            core_features = analysis.get('core_features', [])
+            summary_parts.append(f"CORE FEATURES IDENTIFIED: {len(core_features)}")
+            
+            # Safe handling of stakeholders
+            stakeholders = analysis.get('stakeholders', ['user'])
+            if stakeholders:
+                stakeholder_strings = [safe_string_extract(s) for s in stakeholders[:5] if s]
+                stakeholder_strings = [s for s in stakeholder_strings if s.strip()]  # Filter empty
+                if stakeholder_strings:
+                    summary_parts.append(f"STAKEHOLDERS IDENTIFIED: {', '.join(stakeholder_strings)}")
+            
+            # Safe handling of technical constraints
+            tech_constraints = analysis.get("technical_constraints", [])
+            if tech_constraints:
+                constraint_strings = [safe_string_extract(c) for c in tech_constraints[:3] if c]
+                constraint_strings = [c for c in constraint_strings if c.strip()]  # Filter empty
+                if constraint_strings:
+                    summary_parts.append(f"TECHNICAL CONSTRAINTS: {', '.join(constraint_strings)}")
+            
+            # Safe handling of business goals
+            business_goals = analysis.get("business_goals", [])
+            if business_goals:
+                goal_strings = [safe_string_extract(g) for g in business_goals[:3] if g]
+                goal_strings = [g for g in goal_strings if g.strip()]  # Filter empty
+                if goal_strings:
+                    summary_parts.append(f"BUSINESS GOALS: {', '.join(goal_strings)}")
+            
+            # Safe handling of gaps
+            gaps = analysis.get("gaps", [])
+            if gaps:
+                gap_strings = [safe_string_extract(g) for g in gaps[:2] if g]
+                gap_strings = [g for g in gap_strings if g.strip()]  # Filter empty
+                if gap_strings:
+                    summary_parts.append(f"GAPS IDENTIFIED: {', '.join(gap_strings)}")
+            
+        except Exception as e:
+            print(f"[SOURCE_ANALYSIS_ERROR] Error creating summary: {e}")
+            summary_parts = [
+                "INPUT TYPE: Requirements provided",
+                "CORE FEATURES IDENTIFIED: Analysis in progress",
+                "STAKEHOLDERS IDENTIFIED: user, administrator"
+            ]
+        
+        return "\n".join(summary_parts)
+    
+    def _format_multimodal_feedback(self, state: ProjectManagementState) -> tuple:
+        """
+        Format validation feedback specifically for multimodal iteration improvements.
+        """
         iteration_count = state.get("iteration_count", 0)
         
         if iteration_count == 0:
-            # First iteration - no feedback
             return "", "", ""
         
-        feedback_section = "\n=== VALIDATION FEEDBACK FROM PREVIOUS ITERATION ===\n"
-        iteration_instructions = "\n6. **CRITICAL**: Address all validation feedback from the previous iteration"
-        feedback_focus = "\n6. **Address specific feedback and improve story quality**"
+        feedback_section = "\n=== MULTIMODAL VALIDATION FEEDBACK ===\n"
+        iteration_instructions = "\n6. **CRITICAL**: Address multimodal feedback and improve source integration"
+        feedback_focus = "\n6. **Improve multimodal processing and source coverage**"
         
-        # Add detailed feedback if available
         detailed_feedback = state.get("detailed_feedback", {})
-        validation_feedback = state.get("validation_feedback", [])
-        story_issues = state.get("story_issues", {})
         
         if detailed_feedback:
             feedback_section += f"**Validation Score**: {state.get('validation_score', 0):.1f}/100\n\n"
+            
+            # Source coverage issues
+            if detailed_feedback.get("missing_requirements"):
+                feedback_section += "**MISSING REQUIREMENTS (check all sources)**:\n"
+                for req in detailed_feedback["missing_requirements"]:
+                    feedback_section += f"- {req}\n"
+                feedback_section += "\n"
+            
+            # Multimodal integration feedback
+            if detailed_feedback.get("recommendations"):
+                feedback_section += "**MULTIMODAL INTEGRATION IMPROVEMENTS**:\n"
+                for rec in detailed_feedback["recommendations"]:
+                    feedback_section += f"- {rec}\n"
+                feedback_section += "\n"
             
             # Critical issues
             if detailed_feedback.get("critical_issues"):
@@ -268,183 +506,71 @@ OUTPUT: JSON array ONLY. No surrounding text.
                 for issue in detailed_feedback["critical_issues"]:
                     feedback_section += f"- {issue}\n"
                 feedback_section += "\n"
-            
-            # Missing requirements
-            if detailed_feedback.get("missing_requirements"):
-                feedback_section += "**MISSING REQUIREMENTS**:\n"
-                for req in detailed_feedback["missing_requirements"]:
-                    feedback_section += f"- {req}\n"
-                feedback_section += "\n"
-            
-            # Recommendations
-            if detailed_feedback.get("recommendations"):
-                feedback_section += "**RECOMMENDATIONS FOR IMPROVEMENT**:\n"
-                for rec in detailed_feedback["recommendations"]:
-                    feedback_section += f"- {rec}\n"
-                feedback_section += "\n"
-            
-            # Story-specific issues
-            if story_issues:
-                feedback_section += "**STORY-SPECIFIC ISSUES**:\n"
-                for story_id, issues in story_issues.items():
-                    feedback_section += f"Story {story_id}:\n"
-                    for issue in issues:
-                        feedback_section += f"  - {issue}\n"
-                feedback_section += "\n"
         
-        elif validation_feedback:
-            feedback_section += "**GENERAL FEEDBACK**:\n"
-            for feedback in validation_feedback:
-                feedback_section += f"- {feedback}\n"
-            feedback_section += "\n"
-        
-        # Add improvement instructions if available
-        improvement_instructions = state.get("improvement_instructions", [])
-        if improvement_instructions:
-            feedback_section += "**SPECIFIC IMPROVEMENT INSTRUCTIONS**:\n"
-            for instruction in improvement_instructions:
-                feedback_section += f"- {instruction}\n"
-            feedback_section += "\n"
-        
-        # Add previous stories for reference
+        # Previous iteration reference
         previous_stories = state.get("previous_user_stories", [])
         if previous_stories:
-            feedback_section += f"**PREVIOUS ITERATION HAD {len(previous_stories)} STORIES** - Use this as reference but improve based on feedback.\n"
+            feedback_section += f"**PREVIOUS ITERATION**: {len(previous_stories)} stories generated - improve based on feedback\n"
         
         return feedback_section, iteration_instructions, feedback_focus
-        
-    def _extract_key_features(self, requirements: str) -> List[str]:
-        """Extract key features from requirements for better story generation"""
-        feature_prompt = ChatPromptTemplate.from_messages([
-            ("system", "Extract the main features and functionalities from these requirements. Return as a JSON array of strings."),
-            ("human", "{requirements}")
-        ])
-        
-        chain = feature_prompt | self.llm | self.parser
-        try:
-            features = chain.invoke({"requirements": requirements})
-            return features if isinstance(features, list) else []
-        except:
-            return []
-    
-    def _ensure_coverage(self, requirements: str, stories: List[Dict]) -> List[Dict]:
-        """Ensure all requirements are covered by the generated stories"""
-        # Check for common missing elements
-        requirements_lower = requirements.lower()
-        story_titles_lower = " ".join([s.get("title", "").lower() for s in stories])
-        
-        missing_elements = []
-        
-        # Check for security requirements
-        if any(word in requirements_lower for word in ["secure", "security", "authentication", "authorization"]):
-            if "security" not in story_titles_lower and "authentication" not in story_titles_lower:
-                missing_elements.append("security")
-        
-        # Check for performance requirements
-        if any(word in requirements_lower for word in ["performance", "fast", "speed", "scalable"]):
-            if "performance" not in story_titles_lower:
-                missing_elements.append("performance")
-        
-        # Check for error handling
-        if "error" in requirements_lower or "exception" in requirements_lower:
-            if "error" not in story_titles_lower:
-                missing_elements.append("error_handling")
-        
-        # Add missing non-functional requirements
-        if missing_elements:
-            nfr_stories = self._generate_nfr_stories(missing_elements, len(stories))
-            stories.extend(nfr_stories)
-        
-        return stories
-    
-    def _generate_nfr_stories(self, missing_elements: List[str], current_count: int) -> List[Dict]:
-        """Generate non-functional requirement stories"""
-        nfr_stories = []
-        
-        templates = {
-            "security": {
-                "title": "As a system administrator, I want robust security measures so that user data is protected",
-                "description": "Implement comprehensive security measures including authentication, authorization, and data encryption",
-                "acceptance_criteria": [
-                    "All API endpoints require authentication",
-                    "Passwords are hashed using bcrypt or similar",
-                    "JWT tokens expire after 24 hours",
-                    "Rate limiting is implemented on all endpoints",
-                    "SQL injection prevention is in place"
-                ],
-                "priority": "high",
-                "estimated_points": 8
-            },
-            "performance": {
-                "title": "As a user, I want the system to respond quickly so that I can work efficiently",
-                "description": "Optimize system performance for responsive user experience",
-                "acceptance_criteria": [
-                    "Page load time under 2 seconds",
-                    "API response time under 200ms for 95% of requests",
-                    "System handles 100 concurrent users",
-                    "Database queries optimized with proper indexing",
-                    "Caching implemented for frequently accessed data"
-                ],
-                "priority": "medium",
-                "estimated_points": 5
-            },
-            "error_handling": {
-                "title": "As a user, I want clear error messages so that I know how to resolve issues",
-                "description": "Implement comprehensive error handling and user feedback",
-                "acceptance_criteria": [
-                    "All errors display user-friendly messages",
-                    "Errors are logged with stack traces",
-                    "System gracefully handles network failures",
-                    "Validation errors clearly indicate the issue",
-                    "500 errors show generic message to users but log details"
-                ],
-                "priority": "medium",
-                "estimated_points": 3
-            }
-        }
-        
-        for idx, element in enumerate(missing_elements):
-            if element in templates:
-                story = templates[element].copy()
-                story["id"] = f"US{current_count + idx + 1:03d}"
-                story["dependencies"] = []
-                story["technical_notes"] = f"Implement {element} best practices"
-                nfr_stories.append(story)
-        
-        return nfr_stories
     
     def generate_stories(self, state: ProjectManagementState) -> ProjectManagementState:
-        """Main method to generate user stories from requirements"""
+        """
+        Enhanced story generation method with full multimodal support.
+        """
         start_time = datetime.now()
         
         try:
-            # Store previous stories before generating new ones
+            # Store previous stories
             current_stories = state.get("user_stories", [])
             if current_stories:
                 state["previous_user_stories"] = current_stories
             
-            # Parse documentation if available, otherwise use original requirements
-            requirements = self._parse_documentation(state)
-            project_context = state.get("project_context", {})
+            # Parse multimodal content
+            multimodal_data = self._parse_multimodal_documentation(state)
+            primary_requirements = multimodal_data["primary_requirements"]
+            document_content = multimodal_data["document_content"]
+            source_metadata = multimodal_data["source_metadata"]
+            project_context = multimodal_data["project_context"]
             
-            # Format context for the prompt
-            context_str = json.dumps(project_context) if project_context else "No specific context provided"
+            # Analyze content across sources
+            content_analysis = self._analyze_multimodal_content(primary_requirements, document_content)
             
-            # Format feedback for iterative improvement
-            feedback_section, iteration_instructions, feedback_focus = self._format_feedback_for_prompt(state)
+            # Create source analysis summary
+            source_analysis = self._create_source_analysis_summary(content_analysis, source_metadata)
             
-            # Log iteration info
+            # Resolve conflicts between sources
+            conflict_resolution = self._resolve_source_conflicts(content_analysis, primary_requirements, document_content)
+            
+            # Format validation feedback for iteration
+            feedback_section, iteration_instructions, feedback_focus = self._format_multimodal_feedback(state)
+            
+            # Log multimodal processing info
             iteration_count = state.get("iteration_count", 0)
-            print(f"[GENERATION] Iteration {iteration_count + 1}")
-            if iteration_count > 0:
-                print(f"[GENERATION] Using feedback from validation to improve stories")
+            print(f"[MULTIMODAL_GEN] Iteration {iteration_count + 1}")
+            print(f"[MULTIMODAL_GEN] Primary text: {len(primary_requirements)} chars")
+            print(f"[MULTIMODAL_GEN] Document content: {len(document_content)} chars")
+            print(f"[MULTIMODAL_GEN] Features identified: {len(content_analysis.get('core_features', []))}")
             
-            # Generate stories using Gemini with feedback
-            chain = self.story_prompt | self.llm | self.parser
+            # Safe stakeholder display
+            stakeholders = content_analysis.get('stakeholders', [])
+            if stakeholders:
+                stakeholder_preview = [safe_string_extract(s) for s in stakeholders[:3]]
+                stakeholder_preview = [s for s in stakeholder_preview if s.strip()]
+                print(f"[MULTIMODAL_GEN] Stakeholders: {', '.join(stakeholder_preview)}")
+            
+            if content_analysis.get('conflicts'):
+                print(f"[MULTIMODAL_GEN] Conflicts detected: {len(content_analysis['conflicts'])}")
+            
+            # Generate stories using enhanced multimodal prompt
+            chain = self.multimodal_story_prompt | self.llm | self.parser
             
             raw_stories = chain.invoke({
-                "requirements": requirements,
-                "project_context": context_str,
+                "primary_requirements": primary_requirements or "No primary requirements provided",
+                "document_content": document_content or "No supporting documentation provided",
+                "source_analysis": source_analysis,
+                "conflict_resolution": conflict_resolution,
+                "project_context": json.dumps(project_context) if project_context else "No specific context",
                 "feedback_section": feedback_section,
                 "iteration_instructions": iteration_instructions,
                 "feedback_focus": feedback_focus,
@@ -453,13 +579,21 @@ OUTPUT: JSON array ONLY. No surrounding text.
             
             # Ensure we have a list
             if not isinstance(raw_stories, list):
-                raw_stories = [raw_stories]
+                raw_stories = [raw_stories] if raw_stories else []
             
-            # Validate and clean each story (structural adjustments before coverage pass)
+            # Validate and enhance each story with multimodal insights
             validated_stories = []
             for idx, story in enumerate(raw_stories):
-                # Ensure story has all required fields
                 story_id = story.get("id", f"US{idx+1:03d}")
+                
+                # Enhanced technical notes with multimodal insights
+                technical_notes = story.get("technical_notes", "")
+                tech_constraints = content_analysis.get("technical_constraints", [])
+                if tech_constraints:
+                    constraint_strings = [safe_string_extract(c) for c in tech_constraints[:2] if c]
+                    constraint_strings = [c for c in constraint_strings if c.strip()]
+                    if constraint_strings:
+                        technical_notes += f" Consider: {', '.join(constraint_strings)}"
                 
                 validated_story = {
                     "id": story_id,
@@ -469,51 +603,178 @@ OUTPUT: JSON array ONLY. No surrounding text.
                     "priority": story.get("priority", "medium"),
                     "estimated_points": story.get("estimated_points", 3),
                     "dependencies": story.get("dependencies", []),
-                    "technical_notes": story.get("technical_notes", "")
+                    "technical_notes": technical_notes.strip(),
+                    "source_traceability": {
+                        "primary_coverage": bool(primary_requirements and any(
+                            word in story.get("title", "").lower() + story.get("description", "").lower()
+                            for word in primary_requirements.lower().split()[:10]
+                        )),
+                        "document_coverage": bool(document_content and any(
+                            word in story.get("title", "").lower() + story.get("description", "").lower()
+                            for word in document_content.lower().split()[:10]
+                        ))
+                    }
                 }
                 
-                # Validate story format
+                # Fix story format if needed
                 if validated_story["title"] and not self._is_valid_story_format(validated_story["title"]):
                     validated_story["title"] = self._fix_story_format(validated_story["title"])
                 
-                # Ensure minimum acceptance criteria length (auto-fix if model gave too few)
+                # Ensure minimum acceptance criteria
                 if len(validated_story["acceptance_criteria"]) < 3:
-                    # Pad by echoing last criterion variations (better than failing later)
                     while len(validated_story["acceptance_criteria"]) < 3:
-                        seed_text = validated_story["acceptance_criteria"][-1] if validated_story["acceptance_criteria"] else "System returns success response"
-                        validated_story["acceptance_criteria"].append(seed_text)
-
+                        base_criteria = validated_story["acceptance_criteria"][-1] if validated_story["acceptance_criteria"] else "System responds successfully"
+                        validated_story["acceptance_criteria"].append(f"Enhanced: {base_criteria}")
+                
                 validated_stories.append(validated_story)
-
-            # Post-pass: enforce sequential IDs & uniqueness (API-friendly deterministic output)
-            seen = set()
+            
+            # Ensure sequential IDs
             for i, story in enumerate(validated_stories):
-                new_id = f"US{i+1:03d}"
-                story["id"] = new_id
-                if story["id"] in seen:
-                    # Should not happen after reassignment, but safety check
-                    suffix = len(seen)
-                    story["id"] = f"US{i+1:03d}"
-                seen.add(story["id"])
+                story["id"] = f"US{i+1:03d}"
             
-            # Ensure coverage of all requirements
-            validated_stories = self._ensure_coverage(requirements, validated_stories)
+            # Enhanced coverage check with multimodal awareness
+            validated_stories = self._ensure_multimodal_coverage(
+                primary_requirements, document_content, content_analysis, validated_stories
+            )
             
-            # Update state
+            # Update state with multimodal metadata
             state["user_stories"] = validated_stories
             state["current_phase"] = "story_validation"
+            state["multimodal_metadata"] = {
+                "source_analysis": content_analysis,
+                "source_distribution": source_metadata.get("content_distribution", {}),
+                "conflicts_resolved": len(content_analysis.get("conflicts", [])),
+                "stories_with_primary_coverage": sum(1 for s in validated_stories if s.get("source_traceability", {}).get("primary_coverage", False)),
+                "stories_with_document_coverage": sum(1 for s in validated_stories if s.get("source_traceability", {}).get("document_coverage", False))
+            }
             
             processing_time = (datetime.now() - start_time).total_seconds()
             if "processing_time" not in state:
                 state["processing_time"] = {}
-            state["processing_time"]["story_generation"] = processing_time
+            state["processing_time"]["multimodal_story_generation"] = processing_time
+            
+            print(f"[MULTIMODAL_GEN] Generated {len(validated_stories)} stories in {processing_time:.1f}s")
             
         except Exception as e:
-            state["last_error"] = f"Story generation failed: {str(e)}"
+            state["last_error"] = f"Multimodal story generation failed: {str(e)}"
             state["user_stories"] = []
             state["current_phase"] = "error"
-            
+            print(f"[MULTIMODAL_GEN_ERROR] {str(e)}")
+            import traceback
+            traceback.print_exc()
+        
         return state
+    
+    def _ensure_multimodal_coverage(self, primary_text: str, document_text: str, analysis: Dict[str, Any], stories: List[Dict]) -> List[Dict]:
+        """
+        Enhanced coverage check that considers both primary requirements and document content.
+        """
+        all_content = f"{primary_text} {document_text}".lower()
+        story_content = " ".join([
+            f"{s.get('title', '')} {s.get('description', '')} {' '.join(s.get('acceptance_criteria', []))}"
+            for s in stories
+        ]).lower()
+        
+        missing_elements = []
+        
+        # Check coverage of identified core features (with safe string extraction)
+        core_features = analysis.get("core_features", [])
+        for feature in core_features[:5]:  # Check top 5 features
+            feature_str = safe_string_extract(feature).lower()
+            if feature_str and feature_str not in story_content:
+                missing_elements.append(f"core_feature_{len(missing_elements)}")
+        
+        # Check technical constraints coverage
+        technical_constraints = analysis.get("technical_constraints", [])
+        for constraint in technical_constraints:
+            constraint_str = safe_string_extract(constraint).lower()
+            constraint_keywords = ["security", "performance", "scalability", "authentication"]
+            if any(keyword in constraint_str for keyword in constraint_keywords):
+                if not any(keyword in story_content for keyword in constraint_keywords):
+                    missing_elements.append("technical_constraints")
+                    break
+        
+        # Generate missing stories if needed
+        if missing_elements:
+            additional_stories = self._generate_multimodal_gap_stories(missing_elements, analysis, len(stories))
+            stories.extend(additional_stories)
+        
+        return stories
+    
+    def _generate_multimodal_gap_stories(self, missing_elements: List[str], analysis: Dict[str, Any], current_count: int) -> List[Dict]:
+        """
+        Generate stories to fill gaps identified in multimodal analysis.
+        """
+        gap_stories = []
+        
+        # Templates enhanced with multimodal insights
+        stakeholders = analysis.get("stakeholders", ["user", "administrator"])
+        primary_stakeholder = "user"
+        if stakeholders:
+            primary_stakeholder_raw = stakeholders[0] if stakeholders else "user"
+            primary_stakeholder = safe_string_extract(primary_stakeholder_raw)
+            if not primary_stakeholder.strip():
+                primary_stakeholder = "user"
+        
+        for idx, element in enumerate(missing_elements[:3]):  # Limit to 3 additional stories
+            if element.startswith("core_feature_"):
+                story = {
+                    "id": f"US{current_count + idx + 1:03d}",
+                    "title": f"As a {primary_stakeholder}, I want to access core system functionality so that I can complete essential tasks",
+                    "description": "Implement core feature identified in requirements analysis but not covered by existing stories",
+                    "acceptance_criteria": [
+                        "Core functionality is accessible through the UI",
+                        "Feature works according to requirements specification",
+                        "Error handling is implemented for edge cases",
+                        "Feature integrates properly with existing system"
+                    ],
+                    "priority": "high",
+                    "estimated_points": 5,
+                    "dependencies": [],
+                    "technical_notes": f"Implement missing core feature identified in multimodal analysis. Reference both primary requirements and supporting documentation."
+                }
+            elif element == "technical_constraints":
+                # Safe extraction of technical constraints
+                tech_constraints = analysis.get('technical_constraints', [])
+                constraint_strings = [safe_string_extract(c) for c in tech_constraints[:3] if c]
+                constraint_strings = [c for c in constraint_strings if c.strip()]
+                constraints_text = ', '.join(constraint_strings) if constraint_strings else "various technical requirements"
+                
+                story = {
+                    "id": f"US{current_count + idx + 1:03d}",
+                    "title": f"As a system administrator, I want robust technical infrastructure so that the system meets all constraints",
+                    "description": "Implement technical requirements and constraints identified across multiple requirement sources",
+                    "acceptance_criteria": [
+                        "System meets performance requirements",
+                        "Security constraints are properly implemented",
+                        "Scalability requirements are addressed",
+                        "Technical documentation is complete"
+                    ],
+                    "priority": "high",
+                    "estimated_points": 8,
+                    "dependencies": [],
+                    "technical_notes": f"Address technical constraints from multimodal analysis: {constraints_text}"
+                }
+            else:
+                # Generic gap story
+                story = {
+                    "id": f"US{current_count + idx + 1:03d}",
+                    "title": f"As a {primary_stakeholder}, I want complete system coverage so that all requirements are addressed",
+                    "description": "Address requirements gap identified in multimodal analysis",
+                    "acceptance_criteria": [
+                        "Gap in requirements is properly addressed",
+                        "Implementation aligns with both primary and document requirements",
+                        "Functionality is tested and validated"
+                    ],
+                    "priority": "medium",
+                    "estimated_points": 3,
+                    "dependencies": [],
+                    "technical_notes": "Fill requirements gap identified through multimodal content analysis"
+                }
+            
+            gap_stories.append(story)
+        
+        return gap_stories
     
     def _is_valid_story_format(self, title: str) -> bool:
         """Check if story follows the standard format"""
@@ -523,13 +784,13 @@ OUTPUT: JSON array ONLY. No surrounding text.
     def _fix_story_format(self, title: str) -> str:
         """Attempt to fix story format"""
         if "want" in title.lower():
-            return title  # Might be close enough
+            return title
         return f"As a user, I want {title} so that I can complete my tasks"
 
-# ==================== VALIDATION AGENT ====================
+# ==================== ENHANCED VALIDATION AGENT ====================
 
-class UserStoryValidationAgent:
-    """Agent responsible for validating generated user stories"""
+class EnhancedUserStoryValidationAgent:
+    """Enhanced validation agent that supports multimodal story generation"""
     
     def __init__(self, gemini_api_key: str = None, temperature: float = 0.1):
         api_key = gemini_api_key or os.getenv("GEMINI_API_KEY")
@@ -538,164 +799,116 @@ class UserStoryValidationAgent:
         
         self.llm = ChatGoogleGenerativeAI(
             model="gemini-2.5-flash",
-            temperature=0.7,  # Lower temperature for validation
+            temperature=0.7,
             google_api_key=api_key
         )
         
+        # Enhanced validation prompt with multimodal awareness
         self.validation_prompt = ChatPromptTemplate.from_messages([
             (
                 "system",
-                """You are an expert QA / Agile validator.
+                """You are an expert QA / Agile validator for MULTIMODAL user story generation.
+
 Assess user stories using this weighted rubric (total 100):
 1. Format & Required Fields (15)
-2. Completeness & Acceptance Criteria Quality (20)
+2. Completeness & Acceptance Criteria Quality (20)  
 3. Requirements & NFR Coverage (25)
-4. Consistency & Dependencies (10)
-5. Sizing & Split Quality (10)
-6. Priority Logic & Business Alignment (10)
-7. Technical Notes Usefulness (10)
+4. Multimodal Source Integration (15) - NEW
+5. Dependencies & Consistency (10)
+6. Sizing & Priority Logic (10)  
+7. Technical Notes Quality (5)
 
-Expectations:
-- Title pattern: As a <persona>, I want <capability> so that <benefit>
-- Acceptance criteria: >=3, each objectively testable
-- Story points: one of 1,2,3,5,8,13
-- Include NFR stories if security, performance, scalability, reliability, observability, compliance implied
-- No circular / invalid dependencies; IDs sequential US###
-- Technical notes: actionable implementation guidance
+MULTIMODAL VALIDATION CRITERIA:
+- Stories should integrate insights from ALL provided sources
+- Primary requirements must be fully covered
+- Document context should enhance, not override primary requirements
+- Source conflicts should be resolved in favor of primary requirements
+- Coverage should span both explicit (text) and implicit (document) needs
 
-Classify findings: critical_issues (must fix), recommendations (quality improvements), warnings (minor polish)."""
+Classify findings: critical_issues (must fix), recommendations (quality improvements), warnings (minor polish).
+
+Return detailed analysis focusing on source integration quality."""
             ),
             (
                 "human",
-                """Original Requirements:
-{requirements}
+                """ORIGINAL REQUIREMENTS SOURCES:
 
-Generated User Stories:
+=== PRIMARY REQUIREMENTS ===
+{primary_requirements}
+
+=== SUPPORTING DOCUMENTATION ===  
+{document_content}
+
+=== MULTIMODAL METADATA ===
+{multimodal_metadata}
+
+=== GENERATED USER STORIES ===
 {stories}
 
-Return ONLY a JSON object with keys:
+Validate stories against ALL sources. Return ONLY a JSON object with keys:
 - overall_valid: boolean
 - validation_score: float (0-100)
-- missing_requirements: string[]
-- story_issues: object mapping story ID (e.g. US001) to string[] of issues
-- recommendations: string[]
+- missing_requirements: string[] (from any source)
+- story_issues: object mapping story ID to string[] of issues
+- recommendations: string[] (including multimodal integration advice)
 - critical_issues: string[]
-- warnings: string[]"""
+- warnings: string[]
+- multimodal_analysis: object with source_coverage_score, integration_quality, conflict_resolution_score"""
             ),
         ])
         
         self.parser = JsonOutputParser()
     
-    def _check_story_format(self, story: Dict) -> List[str]:
-        """Check if a story follows proper format"""
-        issues = []
+    def _extract_requirements_from_state(self, state: ProjectManagementState) -> Dict[str, str]:
+        """
+        Extract requirements from state, handling both legacy and multimodal inputs
+        """
+        primary_requirements = ""
+        document_content = ""
         
-        # Check title format
-        title = story.get("title", "")
-        if not title:
-            issues.append("Missing story title")
-        elif not re.match(r"^As a .+, I want .+ so that .+", title, re.IGNORECASE):
-            issues.append("Title doesn't follow 'As a... I want... so that...' format")
+        # Check for multimodal documentation first
+        if state.get("documentation"):
+            doc = state["documentation"]
+            full_content = doc.get("content", "")
+            
+            # Parse multimodal content structure
+            if "=== PROJECT REQUIREMENTS (TEXT) ===" in full_content:
+                parts = full_content.split("=== PROJECT REQUIREMENTS (TEXT) ===")
+                if len(parts) > 1:
+                    primary_section = parts[1].split("=== DOCUMENT:")[0]
+                    primary_requirements = primary_section.strip()
+                    
+                    # Extract document sections
+                    doc_parts = full_content.split("=== DOCUMENT:")
+                    if len(doc_parts) > 1:
+                        document_sections = [part.strip() for part in doc_parts[1:]]
+                        document_content = "\n\n".join([f"Document: {section}" for section in document_sections])
+            else:
+                # Single source (treat as primary requirements)
+                primary_requirements = full_content
         
-        # Check required fields
-        if not story.get("id"):
-            issues.append("Missing story ID")
+        # Fallback to legacy client_requirements
+        if not primary_requirements and not document_content:
+            primary_requirements = state.get("client_requirements", "")
         
-        if not story.get("description"):
-            issues.append("Missing description")
-        
-        if not story.get("acceptance_criteria") or len(story.get("acceptance_criteria", [])) == 0:
-            issues.append("Missing or empty acceptance criteria")
-        elif len(story.get("acceptance_criteria", [])) < 2:
-            issues.append("Insufficient acceptance criteria (need at least 2)")
-        
-        # Check priority
-        if story.get("priority") not in ["high", "medium", "low"]:
-            issues.append(f"Invalid priority: {story.get('priority')}")
-        
-        # Check story points
-        if story.get("estimated_points") not in [1, 2, 3, 5, 8, 13]:
-            issues.append(f"Invalid story points: {story.get('estimated_points')}")
-        
-        return issues
-    
-    def _check_dependencies(self, stories: List[Dict]) -> List[str]:
-        """Check if dependencies are valid"""
-        issues = []
-        story_ids = {story["id"] for story in stories}
-        
-        for story in stories:
-            for dep in story.get("dependencies", []):
-                if dep not in story_ids:
-                    issues.append(f"Story {story['id']} has invalid dependency: {dep}")
-                if dep == story["id"]:
-                    issues.append(f"Story {story['id']} cannot depend on itself")
-        
-        # Check for circular dependencies
-        for story in stories:
-            if self._has_circular_dependency(story["id"], stories):
-                issues.append(f"Story {story['id']} has circular dependencies")
-        
-        return issues
-    
-    def _has_circular_dependency(self, story_id: str, stories: List[Dict], visited: set = None) -> bool:
-        """Check for circular dependencies"""
-        if visited is None:
-            visited = set()
-        
-        if story_id in visited:
-            return True
-        
-        visited.add(story_id)
-        
-        story = next((s for s in stories if s["id"] == story_id), None)
-        if not story:
-            return False
-        
-        for dep in story.get("dependencies", []):
-            if self._has_circular_dependency(dep, stories, visited.copy()):
-                return True
-        
-        return False
-    
-    def _check_coverage(self, requirements: str, stories: List[Dict]) -> List[str]:
-        """Check if all requirements are covered"""
-        missing = []
-        
-        requirements_lower = requirements.lower()
-        all_story_text = " ".join([
-            f"{s.get('title', '')} {s.get('description', '')} {' '.join(s.get('acceptance_criteria', []))}"
-            for s in stories
-        ]).lower()
-        
-        # Check for key technical terms
-        technical_terms = ["api", "database", "authentication", "ui", "frontend", "backend", 
-                          "security", "performance", "testing", "deployment"]
-        
-        for term in technical_terms:
-            if term in requirements_lower and term not in all_story_text:
-                missing.append(f"No story addresses '{term}' mentioned in requirements")
-        
-        # Check for CRUD operations if applicable
-        if any(word in requirements_lower for word in ["create", "read", "update", "delete", "crud"]):
-            crud_ops = ["create", "read", "view", "update", "edit", "delete", "remove"]
-            covered_ops = [op for op in crud_ops if op in all_story_text]
-            if len(covered_ops) < 3:  # Should have at least 3 CRUD operations
-                missing.append("CRUD operations not fully covered")
-        
-        return missing
+        return {
+            "primary_requirements": primary_requirements,
+            "document_content": document_content,
+            "combined_requirements": f"{primary_requirements}\n\n{document_content}".strip()
+        }
     
     def validate_stories(self, state: ProjectManagementState) -> ProjectManagementState:
-        """Main method to validate user stories"""
+        """Enhanced validation method with multimodal support"""
         start_time = datetime.now()
         
         try:
-            requirements = state["client_requirements"]
+            # Extract requirements from multimodal or legacy sources
+            requirements_data = self._extract_requirements_from_state(state)
             stories = state.get("user_stories", [])
             
-            print(f"[VALIDATION DEBUG] Received {len(stories)} stories from generation")
-            if stories:
-                print(f"[VALIDATION DEBUG] First story keys: {list(stories[0].keys())}")
+            print(f"[VALIDATION] Validating {len(stories)} stories with multimodal support")
+            print(f"[VALIDATION] Primary requirements: {len(requirements_data['primary_requirements'])} chars")
+            print(f"[VALIDATION] Document content: {len(requirements_data['document_content'])} chars")
             
             if not stories:
                 state["validation_status"] = ValidationStatus.NEEDS_REVISION.value
@@ -704,66 +917,55 @@ Return ONLY a JSON object with keys:
                 state["current_phase"] = "story_generation"
                 return state
             
-            # Perform structural validation
-            all_issues = []
-            story_issues = {}
+            # Get multimodal metadata if available
+            multimodal_metadata = state.get("multimodal_metadata", {})
             
-            # Check each story's format
-            for story in stories:
-                issues = self._check_story_format(story)
-                if issues:
-                    story_issues[story["id"]] = issues
-                    all_issues.extend(issues)
-            
-            # Check dependencies
-            dep_issues = self._check_dependencies(stories)
-            if dep_issues:
-                all_issues.extend(dep_issues)
-            
-            # Check coverage
-            coverage_issues = self._check_coverage(requirements, stories)
-            if coverage_issues:
-                all_issues.extend(coverage_issues)
-            
-            # Use Gemini for semantic validation
-            chain = self.validation_prompt | self.llm | self.parser
-            
-            print(f"[VALIDATION DEBUG] About to call LLM with {len(stories)} stories")
+            # Use enhanced validation prompt
             try:
-                # First try without the JSON parser to see raw response
-                raw_chain = self.validation_prompt | self.llm
-                raw_response = raw_chain.invoke({
-                    "requirements": requirements,
+                chain = self.validation_prompt | self.llm | self.parser
+                
+                semantic_validation = chain.invoke({
+                    "primary_requirements": requirements_data["primary_requirements"] or "No primary requirements provided",
+                    "document_content": requirements_data["document_content"] or "No supporting documentation provided", 
+                    "multimodal_metadata": json.dumps(multimodal_metadata) if multimodal_metadata else "No multimodal metadata available",
                     "stories": json.dumps(stories, indent=2)
                 })
-                print(f"[VALIDATION DEBUG] Raw LLM response: {raw_response.content[:500]}...")
                 
-                # Now try with the parser
-                semantic_validation = self.parser.parse(raw_response.content)
-                print(f"[VALIDATION DEBUG] Parsed response type: {type(semantic_validation)}")
-                print(f"[VALIDATION DEBUG] Parsed response keys: {semantic_validation.keys() if isinstance(semantic_validation, dict) else 'Not a dict'}")
             except Exception as validation_error:
-                print(f"[VALIDATION ERROR] LLM call failed: {validation_error}")
-                # Provide fallback validation result
+                print(f"[VALIDATION_ERROR] LLM validation failed: {validation_error}")
                 semantic_validation = {
                     "validation_score": 60.0,
                     "overall_valid": False,
-                    "critical_issues": [f"Validation LLM failed: {str(validation_error)}"],
+                    "critical_issues": [f"Semantic validation failed: {str(validation_error)}"],
                     "recommendations": ["Manual review required - validation system error"],
                     "story_issues": {},
                     "missing_requirements": [],
-                    "warnings": []
+                    "warnings": [],
+                    "multimodal_analysis": {
+                        "source_coverage_score": 50.0,
+                        "integration_quality": 50.0,
+                        "conflict_resolution_score": 50.0
+                    }
                 }
             
-            # Combine validations
-            validation_score = semantic_validation.get("validation_score", 70.0)
+            # Calculate enhanced validation score
+            base_score = semantic_validation.get("validation_score", 70.0)
             
-            # Adjust score based on structural issues
-            if all_issues:
-                validation_score -= min(30, len(all_issues) * 2)
+            # Boost score for good multimodal integration
+            multimodal_analysis = semantic_validation.get("multimodal_analysis", {})
+            if multimodal_analysis:
+                multimodal_bonus = (
+                    multimodal_analysis.get("source_coverage_score", 50) + 
+                    multimodal_analysis.get("integration_quality", 50) + 
+                    multimodal_analysis.get("conflict_resolution_score", 50)
+                ) / 3
+                if multimodal_bonus > 70:
+                    base_score += min(10, (multimodal_bonus - 70) / 3)  # Up to 10 point bonus
+            
+            validation_score = max(0, min(100, base_score))
             
             # Determine validation status
-            if validation_score >= 80 and len(all_issues) < 3:
+            if validation_score >= 80:
                 validation_status = ValidationStatus.APPROVED.value
                 next_phase = "task_creation"
             elif validation_score >= 60:
@@ -773,41 +975,39 @@ Return ONLY a JSON object with keys:
                 validation_status = ValidationStatus.NEEDS_CLARIFICATION.value
                 next_phase = "requirement_parsing"
             
-            # Combine feedback
+            # Enhanced feedback
             feedback = []
             if semantic_validation.get("critical_issues"):
                 feedback.extend(semantic_validation["critical_issues"])
-            if all_issues:
-                feedback.extend(all_issues[:5])  # Top 5 issues
             if semantic_validation.get("recommendations"):
                 feedback.extend(semantic_validation["recommendations"][:3])
             
-            # Store detailed feedback for next iteration
+            # Create detailed feedback with multimodal insights
             detailed_feedback = {
                 "validation_score": validation_score,
                 "critical_issues": semantic_validation.get("critical_issues", []),
                 "recommendations": semantic_validation.get("recommendations", []),
                 "missing_requirements": semantic_validation.get("missing_requirements", []),
                 "warnings": semantic_validation.get("warnings", []),
-                "structural_issues": all_issues
+                "multimodal_analysis": multimodal_analysis
             }
             
-            # Generate improvement instructions for next iteration
+            # Generate improvement instructions
             improvement_instructions = []
             if semantic_validation.get("critical_issues"):
-                improvement_instructions.append("Fix all critical issues identified in the validation")
+                improvement_instructions.append("Fix all critical issues identified in validation")
             if semantic_validation.get("missing_requirements"):
-                improvement_instructions.append("Add user stories to cover missing requirements")
-            if story_issues:
-                improvement_instructions.append("Address story-specific formatting and content issues")
+                improvement_instructions.append("Add stories to cover missing requirements from all sources")
+            if multimodal_analysis.get("integration_quality", 100) < 70:
+                improvement_instructions.append("Improve integration between primary requirements and document content")
             if validation_score < 70:
-                improvement_instructions.append("Improve overall story quality to achieve higher validation score")
+                improvement_instructions.append("Improve overall story quality and multimodal coverage")
             
-            # Update state with rich feedback
+            # Update state
             state["validation_status"] = validation_status
             state["validation_feedback"] = feedback
-            state["validation_score"] = max(0, min(100, validation_score))
-            state["story_issues"] = story_issues
+            state["validation_score"] = validation_score
+            state["story_issues"] = semantic_validation.get("story_issues", {})
             state["detailed_feedback"] = detailed_feedback
             state["improvement_instructions"] = improvement_instructions
             state["current_phase"] = next_phase
@@ -821,10 +1021,17 @@ Return ONLY a JSON object with keys:
                 state["processing_time"] = {}
             state["processing_time"]["validation"] = processing_time
             
+            print(f"[VALIDATION] Score: {validation_score:.1f}/100, Status: {validation_status}")
+            if multimodal_analysis:
+                print(f"[VALIDATION] Source Coverage: {multimodal_analysis.get('source_coverage_score', 0):.1f}/100")
+                print(f"[VALIDATION] Integration Quality: {multimodal_analysis.get('integration_quality', 0):.1f}/100")
+                print(f"[VALIDATION_DEBUG] Raw validation response: {semantic_validation}")
+                print(f"[VALIDATION_DEBUG] Base score: {base_score}")
+                print(f"[VALIDATION_DEBUG] Final validation score: {validation_score}")
         except Exception as e:
-            state["last_error"] = f"Validation failed: {str(e)}"
+            state["last_error"] = f"Enhanced validation failed: {str(e)}"
             state["validation_status"] = ValidationStatus.NEEDS_REVISION.value
-            state["validation_feedback"] = ["Validation process encountered an error"]
+            state["validation_feedback"] = ["Enhanced validation process encountered an error"]
             state["current_phase"] = "error"
         
         return state
@@ -875,38 +1082,6 @@ Return JSON array: [{{
 Tech: {tech_stack}
 
 Generate 3-5 tasks per story. Include story_id field. Return JSON array only."""
-            ),
-        ])
-        
-        # Keep single story prompt as fallback
-        self.single_story_prompt = ChatPromptTemplate.from_messages([
-            (
-                "system",
-                """You are decomposing ONE user story into 3-7 actionable development tasks.
-
-Each task should:
-- Be completable in 0.5-2 days (4-16 hours)
-- Have clear acceptance criteria
-- Include proper dependencies
-- Cover implementation, testing, and documentation
-
-Return JSON array of task objects with: id, story_id, title, description, category, estimated_hours, priority, dependencies, acceptance_criteria, technical_notes"""
-            ),
-            (
-                "human",
-                """USER STORY:
-ID: {story_id}
-Title: {story_title}
-Description: {story_description}
-Acceptance Criteria: {story_criteria}
-Technical Notes: {story_tech_notes}
-
-Tech Stack: {tech_stack}
-Project Context: {context}
-
-Generate 3-7 tasks for this story. Start task IDs from T{task_start:03d}.
-
-Return ONLY JSON array."""
             ),
         ])
         
@@ -975,74 +1150,21 @@ Return ONLY JSON array."""
         except Exception as e:
             print(f"[TASK_GEN_ERROR] Batch processing failed: {e}")
             # Fallback to individual story processing
-            return self._fallback_batch_processing(story_batch, project_context, starting_task_id)
+            return self._create_fallback_tasks_for_batch(story_batch, project_context, starting_task_id)
     
-    def _fallback_batch_processing(self, story_batch: List[Dict], project_context: Dict, starting_task_id: int) -> List[Dict]:
-        """Fallback to individual story processing if batch fails"""
-        print(f"[TASK_GEN] Falling back to individual processing for {len(story_batch)} stories")
+    def _create_fallback_tasks_for_batch(self, story_batch: List[Dict], project_context: Dict, starting_task_id: int) -> List[Dict]:
+        """Create fallback tasks for a batch of stories when LLM fails"""
+        print(f"[TASK_GEN] Creating fallback tasks for {len(story_batch)} stories")
         
         all_tasks = []
         task_counter = starting_task_id - 1
         
         for story in story_batch:
-            try:
-                story_tasks = self._decompose_story_to_tasks(story, project_context, task_counter)
-                task_counter += len(story_tasks)
-                all_tasks.extend(story_tasks)
-            except Exception as e:
-                print(f"[TASK_GEN_ERROR] Individual fallback failed for {story['id']}: {e}")
-                # Use basic fallback tasks
-                fallback_tasks = self._create_fallback_tasks(story, task_counter)
-                task_counter += len(fallback_tasks)
-                all_tasks.extend(fallback_tasks)
+            fallback_tasks = self._create_fallback_tasks(story, task_counter)
+            task_counter += len(fallback_tasks)
+            all_tasks.extend(fallback_tasks)
         
         return all_tasks
-    
-    def _decompose_story_to_tasks(self, story: Dict, project_context: Dict, task_counter: int) -> List[Dict]:
-        """Decompose a single user story into multiple tasks (fallback method)"""
-        
-        tech_stack = project_context.get("tech_stack", ["Python", "React", "PostgreSQL"])
-        tech_stack_str = ", ".join(tech_stack)
-        
-        try:
-            chain = self.single_story_prompt | self.llm | self.parser
-            
-            tasks = chain.invoke({
-                "story_id": story["id"],
-                "story_title": story["title"],
-                "story_description": story["description"],
-                "story_criteria": "; ".join(story.get("acceptance_criteria", [])),
-                "story_tech_notes": story.get("technical_notes", ""),
-                "tech_stack": tech_stack_str,
-                "context": json.dumps(project_context),
-                "task_start": task_counter + 1
-            })
-            
-            if not isinstance(tasks, list):
-                tasks = [tasks] if tasks else []
-            
-            validated_tasks = []
-            for i, task in enumerate(tasks):
-                if isinstance(task, dict):
-                    validated_task = {
-                        "id": task.get("id", f"T{task_counter + i + 1:03d}"),
-                        "story_id": story["id"],
-                        "title": task.get("title", f"Task for {story['id']}"),
-                        "description": task.get("description", ""),
-                        "category": task.get("category", "backend"),
-                        "estimated_hours": min(16, max(4, task.get("estimated_hours", 8))),
-                        "priority": task.get("priority", "medium"),
-                        "dependencies": task.get("dependencies", []),
-                        "acceptance_criteria": task.get("acceptance_criteria", []),
-                        "technical_notes": task.get("technical_notes", "")
-                    }
-                    validated_tasks.append(validated_task)
-            
-            return validated_tasks[:7]
-            
-        except Exception as e:
-            print(f"[TASK_GEN_ERROR] Failed to decompose story {story['id']}: {e}")
-            return self._create_fallback_tasks(story, task_counter)
     
     def _create_fallback_tasks(self, story: Dict, task_counter: int) -> List[Dict]:
         """Create basic fallback tasks when LLM decomposition fails"""
@@ -1089,37 +1211,6 @@ Return ONLY JSON array."""
         ]
         
         return fallback_tasks
-    
-    def _optimize_dependencies(self, all_tasks: List[Dict]) -> List[Dict]:
-        """Post-process tasks to optimize dependencies and remove duplicates"""
-        
-        # Create task ID mapping for validation
-        task_ids = {task["id"] for task in all_tasks}
-        
-        # Remove duplicate tasks based on title similarity
-        unique_tasks = []
-        seen_titles = set()
-        
-        for task in all_tasks:
-            title_key = task["title"].lower().strip()
-            if title_key not in seen_titles:
-                seen_titles.add(title_key)
-                unique_tasks.append(task)
-            else:
-                print(f"[TASK_OPT] Removed duplicate task: {task['title']}")
-        
-        # Fix dependencies to only reference existing tasks
-        for task in unique_tasks:
-            if task.get("dependencies"):
-                valid_deps = [dep for dep in task["dependencies"] if dep in task_ids]
-                invalid_deps = [dep for dep in task["dependencies"] if dep not in task_ids]
-                
-                if invalid_deps:
-                    print(f"[TASK_OPT] Removed invalid dependencies from {task['id']}: {invalid_deps}")
-                
-                task["dependencies"] = valid_deps
-        
-        return unique_tasks
     
     def generate_tasks(self, state: ProjectManagementState) -> ProjectManagementState:
         """Main method to generate tasks from validated user stories using intelligent batching"""
@@ -1178,12 +1269,9 @@ Return ONLY JSON array."""
                     task_id_counter += len(fallback_tasks)
                     all_tasks.extend(fallback_tasks)
             
-            # Ensure sequential task IDs and optimize dependencies
+            # Ensure sequential task IDs
             for i, task in enumerate(all_tasks):
                 task["id"] = f"T{i + 1:03d}"
-            
-            # Optimize dependencies and remove duplicates
-            all_tasks = self._optimize_dependencies(all_tasks)
             
             # Update state
             state["tasks"] = all_tasks
@@ -1196,13 +1284,8 @@ Return ONLY JSON array."""
             
             # Performance summary
             avg_time_per_story = processing_time / num_stories if num_stories > 0 else 0
-            print(f"[TASK_GEN] ✅ Generated {len(all_tasks)} tasks for {num_stories} stories in {processing_time:.1f}s")
-            print(f"[TASK_GEN] ⚡ Performance: {avg_time_per_story:.1f}s per story, {num_batches} batches")
-            
-            # Verify all stories have tasks
-            final_stories_with_tasks = {task["story_id"] for task in all_tasks}
-            if len(final_stories_with_tasks) != num_stories:
-                print(f"[TASK_GEN] ⚠️  Warning: {num_stories - len(final_stories_with_tasks)} stories still missing tasks")
+            print(f"[TASK_GEN] Generated {len(all_tasks)} tasks for {num_stories} stories in {processing_time:.1f}s")
+            print(f"[TASK_GEN] Performance: {avg_time_per_story:.1f}s per story, {num_batches} batches")
             
         except Exception as e:
             state["last_error"] = f"Task generation failed: {str(e)}"
@@ -1220,8 +1303,8 @@ def create_story_workflow(gemini_api_key: str = None, max_iterations: int = 3) -
     """Create the LangGraph workflow for story generation and validation with feedback loop"""
     
     # Initialize agents
-    story_agent = UserStoryGenerationAgent(gemini_api_key)
-    validation_agent = UserStoryValidationAgent(gemini_api_key)
+    story_agent = MultimodalUserStoryGenerationAgent(gemini_api_key)
+    validation_agent = EnhancedUserStoryValidationAgent(gemini_api_key)
     task_agent = TaskGenerationAgent(gemini_api_key)
     
     # Create workflow
@@ -1241,14 +1324,15 @@ def create_story_workflow(gemini_api_key: str = None, max_iterations: int = 3) -
     workflow.add_node("validate_stories", validation_agent.validate_stories)
     workflow.add_node("generate_tasks", task_agent.generate_tasks)
     
-    # Add placeholder nodes for next steps (implement these later)
-    workflow.add_node("task_assignment", lambda x: x)  # Placeholder
+    # Add placeholder nodes
+    workflow.add_node("task_creation", lambda x: x)  # Placeholder
     workflow.add_node("requirement_parsing", lambda x: x)  # Placeholder
     workflow.add_node("human_review", lambda x: x)  # Placeholder
     
     # Add edges
     workflow.add_edge("initialize", "generate_stories")
     workflow.add_edge("generate_stories", "validate_stories")
+    workflow.add_edge("generate_tasks", "task_creation")
     
     # Enhanced conditional edges with feedback loop
     def determine_next_step(state: ProjectManagementState) -> str:
@@ -1263,21 +1347,17 @@ def create_story_workflow(gemini_api_key: str = None, max_iterations: int = 3) -
         if validation_status == ValidationStatus.APPROVED.value or validation_score >= 85:
             return "approved"
         
-        # If we've reached max iterations but have decent stories, proceed to task generation
+        # If we've reached max iterations but have decent stories, proceed
         if iteration_count >= max_iter:
-            if validation_score >= 70:  # Good enough to proceed
-                print(f"[WORKFLOW] Maximum iterations ({max_iter}) reached, but score {validation_score:.1f} is acceptable. Proceeding to task generation.")
+            if validation_score >= 70:
+                print(f"[WORKFLOW] Max iterations reached, score {validation_score:.1f} is acceptable.")
                 return "approved"
             else:
-                print(f"[WORKFLOW] Maximum iterations ({max_iter}) reached, escalating to human review")
+                print(f"[WORKFLOW] Max iterations reached, escalating to human review")
                 return "max_iterations"
         
-        # Check for clarification needs
-        if validation_status == ValidationStatus.NEEDS_CLARIFICATION.value:
-            return "needs_clarification"
-        
-        # Continue with revision if validation score suggests improvement is possible
-        if validation_score >= 30:  # Worth trying to improve
+        # Continue with revision if possible
+        if validation_score >= 30:
             print(f"[WORKFLOW] Score {validation_score:.1f} suggests improvement possible, iterating...")
             return "needs_revision"
         else:
@@ -1288,145 +1368,56 @@ def create_story_workflow(gemini_api_key: str = None, max_iterations: int = 3) -
         "validate_stories",
         determine_next_step,
         {
-            "approved": "generate_tasks",  # Success - proceed to task generation
-            "needs_revision": "generate_stories",  # Feedback loop - try again with validation feedback
-            "needs_clarification": "requirement_parsing",  # Requirements issue
-            "max_iterations": "human_review",  # Too many iterations
-            "low_quality": "human_review"  # Quality too low to auto-improve
+            "approved": "generate_tasks",
+            "needs_revision": "generate_stories",
+            "max_iterations": "human_review",
+            "low_quality": "human_review"
         }
     )
-    
-    # Add edge from task generation to task assignment
-    workflow.add_edge("generate_tasks", "task_assignment")
     
     # Set entry point
     workflow.set_entry_point("initialize")
     
     return workflow
 
-# ==================== PDF PROCESSING FUNCTIONS ====================
-
-def process_pdf_to_user_stories(
-    pdf_file_path: str,
-    project_context: Dict = None,
-    max_iterations: int = 3,
-    gemini_api_key: str = None
-) -> Dict:
-    """
-    Complete workflow: Load PDF → Generate User Stories with Feedback Loop
-    
-    Args:
-        pdf_file_path: Path to the PDF requirements document
-        project_context: Optional project context (industry, team size, etc.)
-        max_iterations: Maximum feedback loop iterations (default: 3)
-        gemini_api_key: Gemini API key (uses env variable if not provided)
-    
-    Returns:
-        Dict containing user stories, validation results, and metadata
-    """
-    
-    # Step 1: Load and parse PDF
-    try:
-        documentation = load_documentation_from_file(pdf_file_path)
-        print(f"✅ Loaded PDF: {documentation['title']}")
-    except Exception as e:
-        raise ValueError(f"Failed to load PDF {pdf_file_path}: {e}")
-    
-    # Step 2: Setup default project context
-    default_context = {
-        "industry": "Technology",
-        "team_size": 10,
-        "tech_stack": ["Python", "React", "PostgreSQL"],
-        "timeline": "6 months",
-        "budget": "medium",
-        "source": f"PDF: {pdf_file_path}"
-    }
-    
-    if project_context:
-        default_context.update(project_context)
-    
-    # Step 3: Create workflow
-    workflow = create_story_workflow(gemini_api_key, max_iterations)
-    app = workflow.compile()
-    
-    # Step 4: Setup initial state
-    initial_state = {
-        "project_id": f"PDF_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
-        "client_requirements": "",  # Will be generated from PDF
-        "documentation": documentation,
-        "project_context": default_context,
-        "current_phase": "story_generation",
-        "iteration_count": 0,
-        "timestamp": datetime.now().isoformat()
-    }
-    
-    # Step 5: Run workflow
-    print(f"🚀 Generating user stories from PDF...")
-    
-    final_result = None
-    iterations = []
-    
-    for output in app.stream(initial_state):
-        for key, value in output.items():
-            final_result = value
-            
-            if key == "generate_stories":
-                iteration = value.get("iteration_count", 0)
-                story_count = len(value.get('user_stories', []))
-                print(f"📝 Iteration {iteration}: Generated {story_count} stories")
-            
-            elif key == "validate_stories":
-                iteration = value.get("iteration_count", 0)
-                status = value.get('validation_status', 'unknown')
-                score = value.get('validation_score', 0)
-                
-                iterations.append({
-                    "iteration": iteration,
-                    "status": status, 
-                    "score": score,
-                    "story_count": len(value.get('user_stories', []))
-                })
-                
-                print(f"🔍 Iteration {iteration}: {status} (Score: {score:.1f}/100)")
-    
-    # Step 6: Return results
-    if final_result and final_result.get('user_stories'):
-        return {
-            "success": True,
-            "source_pdf": pdf_file_path,
-            "document_info": {
-                "title": documentation['title'],
-                "type": documentation['document_type'],
-                "content_length": len(documentation['content'])
-            },
-            "workflow_results": {
-                "iterations": iterations,
-                "final_score": final_result.get('validation_score', 0),
-                "final_status": final_result.get('validation_status'),
-                "total_iterations": len(iterations)
-            },
-            "user_stories": final_result['user_stories'],
-            "metadata": {
-                "generated_at": datetime.now().isoformat(),
-                "story_count": len(final_result['user_stories']),
-                "validation_score": final_result.get('validation_score', 0)
-            }
-        }
-    else:
-        return {
-            "success": False,
-            "error": "No user stories were generated",
-            "source_pdf": pdf_file_path
-        }
-
 # ==================== UTILITY FUNCTIONS ====================
 
-def create_documentation_from_text(content: str, doc_type: str = "Requirements Document", title: str = "Project Requirements") -> Dict:
-    """Helper function to create structured documentation from plain text"""
+def create_multimodal_documentation(
+    primary_requirements: str,
+    document_path: Optional[str] = None,
+    title: str = "Multimodal Project Requirements"
+) -> Dict:
+    """
+    Create multimodal documentation from primary text and optional document file.
+    This is the KEY function that formats content correctly for the multimodal agent.
+    """
+    
+    content_parts = []
+    
+    # Always include primary requirements section
+    if primary_requirements.strip():
+        content_parts.append("=== PROJECT REQUIREMENTS (TEXT) ===")
+        content_parts.append(primary_requirements.strip())
+        content_parts.append("")  # Empty line
+    
+    # Add document content if provided
+    if document_path and os.path.exists(document_path):
+        try:
+            document_content = _extract_text_from_file(document_path)
+            if document_content.strip():
+                filename = os.path.basename(document_path)
+                content_parts.append(f"=== DOCUMENT: {filename} ===")
+                content_parts.append(document_content.strip())
+        except Exception as e:
+            print(f"[WARNING] Failed to load document {document_path}: {e}")
+    
+    # Combine all content
+    combined_content = "\n".join(content_parts)
+    
     return {
-        "document_type": doc_type,
+        "document_type": "Combined Requirements Document",
         "title": title,
-        "content": content,
+        "content": combined_content,
         "sections": {},
         "stakeholders": [],
         "business_goals": [],
@@ -1434,67 +1425,24 @@ def create_documentation_from_text(content: str, doc_type: str = "Requirements D
         "success_criteria": []
     }
 
-def create_structured_documentation(
-    title: str,
-    content: str,
-    doc_type: str = "Product Requirements Document",
-    sections: Dict[str, str] = None,
-    stakeholders: List[str] = None,
-    business_goals: List[str] = None,
-    technical_constraints: List[str] = None,
-    success_criteria: List[str] = None
-) -> Dict:
-    """Helper function to create comprehensive structured documentation"""
-    return {
-        "document_type": doc_type,
-        "title": title,
-        "content": content,
-        "sections": sections or {},
-        "stakeholders": stakeholders or [],
-        "business_goals": business_goals or [],
-        "technical_constraints": technical_constraints or [],
-        "success_criteria": success_criteria or []
-    }
-
-def load_documentation_from_file(file_path: str) -> Dict:
-    """Load documentation from various file formats (PDF, DOCX, TXT, MD)"""
-    import os
-    
-    if not os.path.exists(file_path):
-        raise ValueError(f"File not found: {file_path}")
-    
+def _extract_text_from_file(file_path: str) -> str:
+    """Extract text from various file formats"""
     file_extension = os.path.splitext(file_path)[1].lower()
-    filename = os.path.basename(file_path)
-    title = os.path.splitext(filename)[0]
     
     try:
         if file_extension == '.pdf':
-            content = _extract_text_from_pdf(file_path)
-            doc_type = "PDF Document"
+            return _extract_text_from_pdf(file_path)
         elif file_extension == '.docx':
-            content = _extract_text_from_docx(file_path)
-            doc_type = "Word Document"
+            return _extract_text_from_docx(file_path)
         elif file_extension in ['.txt', '.md']:
             with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            doc_type = "Markdown Document" if file_extension == '.md' else "Text Document"
+                return f.read()
         else:
-            # Try to read as plain text for unknown extensions
+            # Try as plain text
             with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-            doc_type = "Text Document"
-        
-        if not content.strip():
-            raise ValueError("Document appears to be empty or unreadable")
-        
-        return create_documentation_from_text(
-            content=content,
-            title=title,
-            doc_type=doc_type
-        )
-        
+                return f.read()
     except Exception as e:
-        raise ValueError(f"Failed to load documentation from {file_path}: {e}")
+        raise ValueError(f"Failed to extract text from {file_path}: {e}")
 
 def _extract_text_from_pdf(file_path: str) -> str:
     """Extract text content from PDF file"""
@@ -1505,16 +1453,11 @@ def _extract_text_from_pdf(file_path: str) -> str:
         with open(file_path, 'rb') as file:
             pdf_reader = PyPDF2.PdfReader(file)
             
-            for page_num in range(len(pdf_reader.pages)):
-                page = pdf_reader.pages[page_num]
+            for page in pdf_reader.pages:
                 text_content.append(page.extract_text())
         
         content = '\n'.join(text_content)
-        
-        # Clean up the text
-        content = _clean_extracted_text(content)
-        
-        return content
+        return _clean_extracted_text(content)
         
     except ImportError:
         raise ValueError("PyPDF2 library not installed. Run: pip install PyPDF2")
@@ -1545,11 +1488,7 @@ def _extract_text_from_docx(file_path: str) -> str:
                     text_content.append(' | '.join(row_text))
         
         content = '\n'.join(text_content)
-        
-        # Clean up the text
-        content = _clean_extracted_text(content)
-        
-        return content
+        return _clean_extracted_text(content)
         
     except ImportError:
         raise ValueError("python-docx library not installed. Run: pip install python-docx")
@@ -1561,161 +1500,242 @@ def _clean_extracted_text(text: str) -> str:
     import re
     
     # Remove excessive whitespace
-    text = re.sub(r'\n\s*\n', '\n\n', text)  # Multiple newlines to double newline
-    text = re.sub(r' +', ' ', text)  # Multiple spaces to single space
+    text = re.sub(r'\n\s*\n', '\n\n', text)
+    text = re.sub(r' +', ' ', text)
     
     # Remove strange characters that sometimes appear in PDFs
     text = re.sub(r'[^\w\s\.,;:!?\-()[\]{}"\'/\\+=*&%$#@|<>~`]', '', text)
     
     # Fix common PDF extraction issues
-    text = text.replace('•', '-')  # Bullet points
-    text = text.replace('○', '-')  # Bullet points
-    text = text.replace('▪', '-')  # Bullet points
+    text = text.replace('•', '-')
+    text = text.replace('○', '-')
+    text = text.replace('▪', '-')
     
     return text.strip()
 
-# ==================== USAGE EXAMPLE ====================
+# ==================== TEST RUNNER ====================
 
-if __name__ == "__main__":
-    # Example usage
-    import os
+def test_multimodal_workflow(
+    primary_requirements: str,
+    document_path: Optional[str] = None,
+    project_context: Optional[Dict] = None,
+    max_iterations: int = 3
+) -> Dict:
+    """
+    Test the multimodal workflow with given requirements and optional document.
     
-    # Load environment variables from .env file if available
+    Args:
+        primary_requirements: Main text requirements (user input)
+        document_path: Optional path to supporting document (PDF, DOCX, TXT)
+        project_context: Optional project metadata
+        max_iterations: Maximum validation iterations
+        
+    Returns:
+        Dict with results including user stories and validation metrics
+    """
+    
+    # Load environment variables
     try:
         from dotenv import load_dotenv
         load_dotenv()
     except ImportError:
-        print("python-dotenv not installed. Loading environment variables from system only.")
+        pass
     
-    # Get API key from environment variable
+    # Get API key
     gemini_api_key = os.getenv("GEMINI_API_KEY")
     if not gemini_api_key:
-        print("Please set GEMINI_API_KEY environment variable or create a .env file")
-        print("Example .env file content:")
-        print("GEMINI_API_KEY=your_api_key_here")
-        exit(1)
+        raise ValueError("GEMINI_API_KEY environment variable not set")
     
-    # Initialize workflow
-    workflow = create_story_workflow(gemini_api_key)
-    app = workflow.compile()
-    
-    # Example 1: Using structured documentation (RECOMMENDED)
-    project_documentation = create_structured_documentation(
-        title="AI-Powered Project Management Platform",
-        doc_type="Product Requirements Document",
-        content="""
-        Build an AI-powered project management tool similar to JIRA that automates project management workflows
-        and provides intelligent insights for development teams.
-        """,
-        sections={
-            "overview": "An intelligent project management platform that uses AI to automate story generation, task assignment, and quality control.",
-            "core_features": """
-            1. Automated user story generation from requirements
-            2. Intelligent task creation and assignment
-            3. Interactive Kanban board with drag-and-drop
-            4. AI-powered quality control and testing
-            5. Real-time developer feedback system
-            6. Validation agents for output verification
-            7. Team collaboration tools
-            8. Performance analytics and reporting
-            """,
-            "user_interface": "Modern React-based UI with responsive design and intuitive user experience",
-            "architecture": "Microservices architecture with Python backend and PostgreSQL database"
-        },
-        stakeholders=["Development Teams", "Project Managers", "QA Engineers", "Product Owners", "Scrum Masters"],
-        business_goals=[
-            "Reduce project planning time by 70%",
-            "Improve development velocity by 40%", 
-            "Increase delivery quality through automated QC",
-            "Enable data-driven project decisions"
-        ],
-        technical_constraints=[
-            "Must handle 100+ concurrent users",
-            "Sub-second response times required",
-            "Integration with existing development tools",
-            "Scalable cloud-native architecture"
-        ],
-        success_criteria=[
-            "User story generation accuracy > 90%",
-            "Task completion tracking in real-time",
-            "User adoption rate > 80% within 3 months",
-            "System uptime > 99.9%"
-        ]
+    # Create multimodal documentation
+    documentation = create_multimodal_documentation(
+        primary_requirements=primary_requirements,
+        document_path=document_path,
+        title="Test Multimodal Requirements"
     )
     
-    initial_state_with_docs = {
-        "project_id": "PROJ-001", 
-        "client_requirements": "",  # Will be generated from documentation
-        "documentation": project_documentation,
-        "project_context": {
-            "industry": "Software Development",
-            "team_size": 10,
-            "tech_stack": ["Python", "FastAPI", "React", "PostgreSQL"],
-            "timeline": "3 months",
-            "budget": "medium"
-        },
+    # Setup project context
+    default_context = {
+        "industry": "Technology",
+        "team_size": 8,
+        "tech_stack": ["Python", "React", "PostgreSQL"],
+        "timeline": "4 months",
+        "budget": "medium"
+    }
+    if project_context:
+        default_context.update(project_context)
+    
+    # Create initial state
+    initial_state = {
+        "project_id": f"TEST_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+        "client_requirements": "",  # Empty - using documentation
+        "documentation": documentation,
+        "project_context": default_context,
         "current_phase": "story_generation",
         "iteration_count": 0,
         "timestamp": datetime.now().isoformat()
     }
     
-    # Example 2: Using simple text (BACKWARD COMPATIBILITY)
-    initial_state_simple = {
-        "project_id": "PROJ-002",
-        "client_requirements": """
-        Build an AI-powered project management tool similar to JIRA.
-        The system should:
-        1. Parse client requirements and generate user stories automatically
-        2. Create tasks from user stories and assign them to developers
-        3. Display tasks on a Kanban board with drag-and-drop functionality
-        4. Perform automated QC and testing on completed work
-        5. Provide AI-powered feedback to developers
-        6. Include validation agents to verify all outputs
-        7. Support real-time collaboration between team members
-        8. Generate performance reports for employees
-        9. Include authentication and role-based access control
-        10. Handle at least 100 concurrent users with sub-second response times
-        """,
-        "project_context": {
-            "industry": "Software Development",
-            "team_size": 10,
-            "tech_stack": ["Python", "FastAPI", "React", "PostgreSQL"],
-            "timeline": "3 months",
-            "budget": "medium"
-        },
-        "current_phase": "story_generation",
-        "iteration_count": 0,
-        "timestamp": datetime.now().isoformat()
-    }
+    # Run workflow
+    workflow = create_story_workflow(gemini_api_key, max_iterations)
+    app = workflow.compile()
     
-    # Choose which example to run
-    initial_state = initial_state_with_docs  # Use structured documentation
+    print(f"🚀 Testing multimodal workflow...")
+    print(f"📝 Primary requirements: {len(primary_requirements)} chars")
+    if document_path:
+        print(f"📄 Document: {document_path}")
     
-    # Run the workflow
-    try:
-        # Invoke with the initial state
-        for output in app.stream(initial_state):
-            for key, value in output.items():
-                print(f"\n=== {key} ===")
-                if key == "generate_stories":
-                    print(f"Generated {len(value.get('user_stories', []))} user stories")
-                elif key == "validate_stories":
-                    print(f"Validation Status: {value.get('validation_status')}")
-                    print(f"Validation Score: {value.get('validation_score')}")
-                    if value.get('validation_feedback'):
-                        print(f"Feedback: {value.get('validation_feedback')}")
-        
-        # Get final state
-        final_state = app.get_state(initial_state)
-        
-        if final_state.values.get("user_stories"):
-            print("\n=== Final Generated User Stories ===")
-            for story in final_state.values["user_stories"][:3]:  # Show first 3 stories
-                print(f"\nID: {story['id']}")
-                print(f"Title: {story['title']}")
-                print(f"Priority: {story['priority']}")
-                print(f"Points: {story['estimated_points']}")
-                print(f"Acceptance Criteria: {len(story['acceptance_criteria'])} items")
+    final_result = None
+    iterations = []
+    
+    for output in app.stream(initial_state):
+        for key, value in output.items():
+            final_result = value
+            
+            if key == "generate_stories":
+                iteration = value.get("iteration_count", 0)
+                story_count = len(value.get('user_stories', []))
+                print(f"📝 Iteration {iteration + 1}: Generated {story_count} stories")
+            
+            elif key == "validate_stories":
+                iteration = value.get("iteration_count", 0)
+                status = value.get('validation_status', 'unknown')
+                score = value.get('validation_score', 0)
                 
+                iterations.append({
+                    "iteration": iteration,
+                    "status": status,
+                    "score": score,
+                    "story_count": len(value.get('user_stories', []))
+                })
+                
+                print(f"✅ Iteration {iteration}: {status} (Score: {score:.1f}/100)")
+    
+    # Return comprehensive results
+    if final_result and final_result.get('user_stories'):
+        return {
+            "success": True,
+            "workflow_results": {
+                "iterations": iterations,
+                "final_score": final_result.get('validation_score', 0),
+                "final_status": final_result.get('validation_status'),
+                "total_iterations": len(iterations)
+            },
+            "user_stories": final_result['user_stories'],
+            "tasks": final_result.get('tasks', []),  # ✅ Fix: Extract from final_result
+            "multimodal_metadata": final_result.get('multimodal_metadata', {}),
+            "processing_time": final_result.get('processing_time', {}),
+            "metadata": {
+                "generated_at": datetime.now().isoformat(),
+                "story_count": len(final_result['user_stories']),
+                "validation_score": final_result.get('validation_score', 0)
+            }
+        }
+    else:
+        return {
+            "success": False,
+            "error": final_result.get('last_error', 'Unknown error occurred'),
+            "final_state": final_result
+        }
+
+# ==================== USAGE EXAMPLES ====================
+
+if __name__ == "__main__":
+    
+    # Example 1: Text + PDF (Multimodal)
+    primary_text = """
+        Build a comprehensive healthcare management system for a mid-sized clinic with the following requirements:
+
+        CORE FUNCTIONALITY:
+        1. Patient Management
+        - Patient registration with medical history
+        - Appointment scheduling and management
+        - Medical record storage and retrieval
+        - Insurance information tracking
+        - Emergency contact management
+
+        2. Doctor and Staff Management
+        - Staff scheduling and availability
+        - Doctor specialization tracking
+        - Performance metrics and reporting
+        - Role-based access control (Doctor, Nurse, Admin, Receptionist)
+
+        3. Appointment System
+        - Online appointment booking for patients
+        - Calendar integration for staff
+        - Automated reminder system (SMS/email)
+        - Waitlist management for cancellations
+        - Recurring appointment support
+
+        4. Medical Records
+        - Digital medical record creation and editing
+        - Prescription management and history
+        - Lab result integration
+        - Medical imaging storage and viewing
+        - Patient consent and privacy controls
+
+        5. Billing and Insurance
+        - Invoice generation and payment processing
+        - Insurance claim management
+        - Payment plan setup and tracking
+        - Financial reporting and analytics
+
+        TECHNICAL REQUIREMENTS:
+        - Support for 200+ concurrent users
+        - HIPAA compliance mandatory
+        - Mobile-responsive design
+        - Integration with existing EMR systems
+        - Real-time data synchronization
+        - Backup and disaster recovery
+        - Role-based security with audit logging
+    """
+    
+    # Path to a sample PDF (create a sample or use None for text-only)
+    sample_pdf_path = "requirements-doc.pdf"  # Set to actual PDF path if you have one
+    # sample_pdf_path = None  # Use this for text-only testing
+    
+    try:
+        # Run the test
+        results = test_multimodal_workflow(
+            primary_requirements=primary_text,
+            document_path=sample_pdf_path if os.path.exists(sample_pdf_path or "") else None,
+            project_context={
+                "industry": "Healthcare Technology",
+                "team_size": 8,
+                "tech_stack": ["React", "Node.js", "PostgreSQL", "AWS"],
+                "timeline": "6 months",
+                "budget": "high"
+            },
+            max_iterations=2
+        )
+        
+        if results["success"]:
+            print("\n" + "="*80)
+            print("🎉 WORKFLOW COMPLETED SUCCESSFULLY")
+            print("="*80)
+            print(f"Final Score: {results['workflow_results']['final_score']:.1f}/100")
+            print(f"Total Iterations: {results['workflow_results']['total_iterations']}")
+            print(f"Stories Generated: {results['metadata']['story_count']}")
+            
+            # Show multimodal metadata
+            mm_metadata = results.get("multimodal_metadata", {})
+            if mm_metadata:
+                print(f"\n📊 Multimodal Analysis:")
+                print(f"  - Source Distribution: {mm_metadata.get('source_distribution', {})}")
+                print(f"  - Stories with Primary Coverage: {mm_metadata.get('stories_with_primary_coverage', 0)}")
+                print(f"  - Stories with Document Coverage: {mm_metadata.get('stories_with_document_coverage', 0)}")
+            
+            # Show first few stories
+            print(f"\n📝 Sample User Stories:")
+            for i, story in enumerate(results["user_stories"][:3]):
+                print(f"\n{i+1}. {story['id']}: {story['title']}")
+                print(f"   Priority: {story['priority']} | Points: {story['estimated_points']}")
+                print(f"   Acceptance Criteria: {len(story['acceptance_criteria'])} items")
+                
+        else:
+            print("❌ WORKFLOW FAILED")
+            print(f"Error: {results.get('error', 'Unknown error')}")
+            
     except Exception as e:
-        print(f"Error running workflow: {e}")
+        print(f"❌ Test failed with error: {e}")
+        import traceback
+        traceback.print_exc()
