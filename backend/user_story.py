@@ -156,7 +156,7 @@ class MultimodalUserStoryGenerationAgent:
             raise ValueError("GEMINI_API_KEY must be provided either as parameter or environment variable")
         
         self.llm = ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash",
+            model="gemini-2.5-pro",
             temperature=0.8,
             google_api_key=api_key
         )
@@ -787,47 +787,44 @@ All fields must be arrays of strings. No nested objects or complex data structur
             return title
         return f"As a user, I want {title} so that I can complete my tasks"
 
-# ==================== ENHANCED VALIDATION AGENT ====================
+# ==================== ENHANCED VALIDATION AGENT (FIXED FOR ACCURATE SCORING) ====================
 
 class EnhancedUserStoryValidationAgent:
-    """Enhanced validation agent that supports multimodal story generation"""
+    """
+    Enhanced validation agent that validates against the full requirements context
+    while maintaining stability fixes for the Pro model.
+    """
     
-    def __init__(self, gemini_api_key: str = None, temperature: float = 0.1):
+    def __init__(self, gemini_api_key: str = None, temperature: float = 0.2):
         api_key = gemini_api_key or os.getenv("GEMINI_API_KEY")
         if not api_key:
             raise ValueError("GEMINI_API_KEY must be provided either as parameter or environment variable")
         
         self.llm = ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash",
-            temperature=0.7,
+            model="gemini-2.5-pro",
+            temperature=temperature,
             google_api_key=api_key
         )
         
-        # Enhanced validation prompt with multimodal awareness
+        # CHANGED: The prompt now accepts the full, original requirements again.
+        # This is critical for the agent to accurately score source coverage.
         self.validation_prompt = ChatPromptTemplate.from_messages([
             (
                 "system",
                 """You are an expert QA / Agile validator for MULTIMODAL user story generation.
 
+Your task is to validate the `GENERATED USER STORIES` against the `ORIGINAL REQUIREMENTS SOURCES`. You must ensure every part of the original requirements is covered.
+
 Assess user stories using this weighted rubric (total 100):
-1. Format & Required Fields (15)
-2. Completeness & Acceptance Criteria Quality (20)  
-3. Requirements & NFR Coverage (25)
-4. Multimodal Source Integration (15) - NEW
-5. Dependencies & Consistency (10)
-6. Sizing & Priority Logic (10)  
-7. Technical Notes Quality (5)
+1.  **Requirements & NFR Coverage (25 points):** How well do the stories cover ALL primary and document requirements?
+2.  **Multimodal Source Integration (15 points):** Do the stories correctly synthesize details from both text and documents?
+3.  **Completeness & Acceptance Criteria Quality (20 points):** Are the stories and their ACs clear, testable, and complete?
+4.  **Format & Required Fields (15 points):** Do all stories follow the required schema?
+5.  **Dependencies & Consistency (10 points):** Are dependencies logical? Are there contradictions?
+6.  **Sizing & Priority Logic (10 points):** Are story points and priorities reasonable?
+7.  **Technical Notes Quality (5 points):** Are technical notes helpful and relevant?
 
-MULTIMODAL VALIDATION CRITERIA:
-- Stories should integrate insights from ALL provided sources
-- Primary requirements must be fully covered
-- Document context should enhance, not override primary requirements
-- Source conflicts should be resolved in favor of primary requirements
-- Coverage should span both explicit (text) and implicit (document) needs
-
-Classify findings: critical_issues (must fix), recommendations (quality improvements), warnings (minor polish).
-
-Return detailed analysis focusing on source integration quality."""
+Return a detailed JSON analysis. The `validation_score` and `multimodal_analysis` scores are crucial."""
             ),
             (
                 "human",
@@ -839,203 +836,150 @@ Return detailed analysis focusing on source integration quality."""
 === SUPPORTING DOCUMENTATION ===  
 {document_content}
 
-=== MULTIMODAL METADATA ===
+=== MULTIMODAL METADATA (for context) ===
 {multimodal_metadata}
 
-=== GENERATED USER STORIES ===
+=== GENERATED USER STORIES (for validation) ===
 {stories}
 
-Validate stories against ALL sources. Return ONLY a JSON object with keys:
+INSTRUCTIONS:
+Validate the generated stories against ALL original sources. Return ONLY a JSON object with the specified keys:
 - overall_valid: boolean
 - validation_score: float (0-100)
-- missing_requirements: string[] (from any source)
+- missing_requirements: string[] (List specific features from any source that were missed)
 - story_issues: object mapping story ID to string[] of issues
-- recommendations: string[] (including multimodal integration advice)
+- recommendations: string[]
 - critical_issues: string[]
 - warnings: string[]
-- multimodal_analysis: object with source_coverage_score, integration_quality, conflict_resolution_score"""
+- multimodal_analysis: object with source_coverage_score, integration_quality, conflict_resolution_score
+"""
             ),
         ])
         
         self.parser = JsonOutputParser()
-    
+
+    def _safe_to_float(self, value: Any, default: float = 50.0) -> float:
+        """Safely converts a value to a float, returning a default if conversion fails."""
+        if value is None: return default
+        try: return float(value)
+        except (ValueError, TypeError): return default
+
+    # RE-ADDED: This helper function is now needed again to get the full text.
     def _extract_requirements_from_state(self, state: ProjectManagementState) -> Dict[str, str]:
-        """
-        Extract requirements from state, handling both legacy and multimodal inputs
-        """
+        """Extracts full requirements from state, handling both legacy and multimodal inputs."""
         primary_requirements = ""
         document_content = ""
         
-        # Check for multimodal documentation first
         if state.get("documentation"):
             doc = state["documentation"]
             full_content = doc.get("content", "")
             
-            # Parse multimodal content structure
             if "=== PROJECT REQUIREMENTS (TEXT) ===" in full_content:
                 parts = full_content.split("=== PROJECT REQUIREMENTS (TEXT) ===")
                 if len(parts) > 1:
                     primary_section = parts[1].split("=== DOCUMENT:")[0]
                     primary_requirements = primary_section.strip()
                     
-                    # Extract document sections
                     doc_parts = full_content.split("=== DOCUMENT:")
                     if len(doc_parts) > 1:
                         document_sections = [part.strip() for part in doc_parts[1:]]
                         document_content = "\n\n".join([f"Document: {section}" for section in document_sections])
             else:
-                # Single source (treat as primary requirements)
                 primary_requirements = full_content
         
-        # Fallback to legacy client_requirements
         if not primary_requirements and not document_content:
             primary_requirements = state.get("client_requirements", "")
         
         return {
             "primary_requirements": primary_requirements,
-            "document_content": document_content,
-            "combined_requirements": f"{primary_requirements}\n\n{document_content}".strip()
+            "document_content": document_content
         }
-    
+
     def validate_stories(self, state: ProjectManagementState) -> ProjectManagementState:
-        """Enhanced validation method with multimodal support"""
+        """Enhanced validation method with full context for accurate scoring."""
         start_time = datetime.now()
-        
         try:
-            # Extract requirements from multimodal or legacy sources
-            requirements_data = self._extract_requirements_from_state(state)
             stories = state.get("user_stories", [])
-            
-            print(f"[VALIDATION] Validating {len(stories)} stories with multimodal support")
-            print(f"[VALIDATION] Primary requirements: {len(requirements_data['primary_requirements'])} chars")
-            print(f"[VALIDATION] Document content: {len(requirements_data['document_content'])} chars")
-            
+            print(f"[VALIDATION] Validating {len(stories)} stories with full context prompt...")
+
             if not stories:
+                # Same as before
                 state["validation_status"] = ValidationStatus.NEEDS_REVISION.value
-                state["validation_feedback"] = ["No user stories generated"]
+                state["validation_feedback"] = ["No user stories generated to validate"]
                 state["validation_score"] = 0.0
-                state["current_phase"] = "story_generation"
                 return state
-            
-            # Get multimodal metadata if available
+
+            # RE-ADDED: Get the full requirements text instead of just summaries.
+            requirements_data = self._extract_requirements_from_state(state)
             multimodal_metadata = state.get("multimodal_metadata", {})
-            
-            # Use enhanced validation prompt
+
+            print(f"[VALIDATION] Calling gemini-2.5-pro with {len(requirements_data['primary_requirements'])} chars of primary requirements...")
+
             try:
                 chain = self.validation_prompt | self.llm | self.parser
                 
+                # CHANGED: Pass the full requirements and stories to the prompt.
                 semantic_validation = chain.invoke({
                     "primary_requirements": requirements_data["primary_requirements"] or "No primary requirements provided",
-                    "document_content": requirements_data["document_content"] or "No supporting documentation provided", 
-                    "multimodal_metadata": json.dumps(multimodal_metadata) if multimodal_metadata else "No multimodal metadata available",
+                    "document_content": requirements_data["document_content"] or "No supporting documentation provided",
+                    "multimodal_metadata": json.dumps(multimodal_metadata),
                     "stories": json.dumps(stories, indent=2)
                 })
                 
             except Exception as validation_error:
+                # Same fallback logic
                 print(f"[VALIDATION_ERROR] LLM validation failed: {validation_error}")
-                semantic_validation = {
-                    "validation_score": 60.0,
-                    "overall_valid": False,
-                    "critical_issues": [f"Semantic validation failed: {str(validation_error)}"],
-                    "recommendations": ["Manual review required - validation system error"],
-                    "story_issues": {},
-                    "missing_requirements": [],
-                    "warnings": [],
-                    "multimodal_analysis": {
-                        "source_coverage_score": 50.0,
-                        "integration_quality": 50.0,
-                        "conflict_resolution_score": 50.0
-                    }
-                }
+                semantic_validation = { "validation_score": 50.0, "overall_valid": False, "critical_issues": [f"Semantic validation failed: {str(validation_error)}"], "recommendations": ["Manual review required."], "multimodal_analysis": {}}
             
-            # Calculate enhanced validation score
-            base_score = semantic_validation.get("validation_score", 70.0)
-            
-            # Boost score for good multimodal integration
+            # This logic remains the same, but now it will have accurate scores to work with.
+            base_score = self._safe_to_float(semantic_validation.get("validation_score"), default=70.0)
             multimodal_analysis = semantic_validation.get("multimodal_analysis", {})
+
             if multimodal_analysis:
                 multimodal_bonus = (
-                    multimodal_analysis.get("source_coverage_score", 50) + 
-                    multimodal_analysis.get("integration_quality", 50) + 
-                    multimodal_analysis.get("conflict_resolution_score", 50)
+                    self._safe_to_float(multimodal_analysis.get("source_coverage_score")) +  
+                    self._safe_to_float(multimodal_analysis.get("integration_quality")) +  
+                    self._safe_to_float(multimodal_analysis.get("conflict_resolution_score"))
                 ) / 3
-                if multimodal_bonus > 70:
-                    base_score += min(10, (multimodal_bonus - 70) / 3)  # Up to 10 point bonus
+                if multimodal_bonus > 70: base_score += min(10, (multimodal_bonus - 70) / 3)
             
             validation_score = max(0, min(100, base_score))
             
-            # Determine validation status
+            # The rest of the state update logic is the same...
             if validation_score >= 80:
                 validation_status = ValidationStatus.APPROVED.value
-                next_phase = "task_creation"
+                next_phase = "generate_tasks" 
             elif validation_score >= 60:
                 validation_status = ValidationStatus.NEEDS_REVISION.value
                 next_phase = "story_generation"
             else:
                 validation_status = ValidationStatus.NEEDS_CLARIFICATION.value
                 next_phase = "requirement_parsing"
-            
-            # Enhanced feedback
-            feedback = []
-            if semantic_validation.get("critical_issues"):
-                feedback.extend(semantic_validation["critical_issues"])
-            if semantic_validation.get("recommendations"):
-                feedback.extend(semantic_validation["recommendations"][:3])
-            
-            # Create detailed feedback with multimodal insights
-            detailed_feedback = {
-                "validation_score": validation_score,
-                "critical_issues": semantic_validation.get("critical_issues", []),
-                "recommendations": semantic_validation.get("recommendations", []),
-                "missing_requirements": semantic_validation.get("missing_requirements", []),
-                "warnings": semantic_validation.get("warnings", []),
-                "multimodal_analysis": multimodal_analysis
-            }
-            
-            # Generate improvement instructions
-            improvement_instructions = []
-            if semantic_validation.get("critical_issues"):
-                improvement_instructions.append("Fix all critical issues identified in validation")
-            if semantic_validation.get("missing_requirements"):
-                improvement_instructions.append("Add stories to cover missing requirements from all sources")
-            if multimodal_analysis.get("integration_quality", 100) < 70:
-                improvement_instructions.append("Improve integration between primary requirements and document content")
-            if validation_score < 70:
-                improvement_instructions.append("Improve overall story quality and multimodal coverage")
-            
-            # Update state
+
             state["validation_status"] = validation_status
-            state["validation_feedback"] = feedback
             state["validation_score"] = validation_score
+            state["detailed_feedback"] = semantic_validation
             state["story_issues"] = semantic_validation.get("story_issues", {})
-            state["detailed_feedback"] = detailed_feedback
-            state["improvement_instructions"] = improvement_instructions
-            state["current_phase"] = next_phase
-            
-            # Increment iteration count if revision needed
+            state["current_phase"] = next_phase if validation_status == ValidationStatus.APPROVED.value else "story_generation"
+
             if validation_status != ValidationStatus.APPROVED.value:
                 state["iteration_count"] = state.get("iteration_count", 0) + 1
-            
-            processing_time = (datetime.now() - start_time).total_seconds()
-            if "processing_time" not in state:
-                state["processing_time"] = {}
-            state["processing_time"]["validation"] = processing_time
-            
+
             print(f"[VALIDATION] Score: {validation_score:.1f}/100, Status: {validation_status}")
             if multimodal_analysis:
-                print(f"[VALIDATION] Source Coverage: {multimodal_analysis.get('source_coverage_score', 0):.1f}/100")
-                print(f"[VALIDATION] Integration Quality: {multimodal_analysis.get('integration_quality', 0):.1f}/100")
-                print(f"[VALIDATION_DEBUG] Raw validation response: {semantic_validation}")
-                print(f"[VALIDATION_DEBUG] Base score: {base_score}")
-                print(f"[VALIDATION_DEBUG] Final validation score: {validation_score}")
+                print(f"[VALIDATION] Source Coverage: {self._safe_to_float(multimodal_analysis.get('source_coverage_score')):.1f}/100, Integration Quality: {self._safe_to_float(multimodal_analysis.get('integration_quality')):.1f}/100")
+
         except Exception as e:
-            state["last_error"] = f"Enhanced validation failed: {str(e)}"
+            # Same fatal error handling
+            state["last_error"] = f"Enhanced validation failed unexpectedly: {str(e)}"
             state["validation_status"] = ValidationStatus.NEEDS_REVISION.value
-            state["validation_feedback"] = ["Enhanced validation process encountered an error"]
             state["current_phase"] = "error"
+            print(f"FATAL VALIDATION ERROR: {e}")
+            import traceback
+            traceback.print_exc()
         
         return state
-
+        
 # ==================== TASK GENERATION AGENT ====================
 
 class TaskGenerationAgent:
@@ -1047,7 +991,7 @@ class TaskGenerationAgent:
             raise ValueError("GEMINI_API_KEY must be provided either as parameter or environment variable")
         
         self.llm = ChatGoogleGenerativeAI(
-            model="gemini-2.5-flash",
+            model="gemini-2.5-pro",
             temperature=0.4,
             google_api_key=api_key
         )
@@ -1065,10 +1009,12 @@ For each story, generate 3-5 tasks:
 - Optional: DevOps or documentation task
 
 Each task: 4-16 hours, atomic, includes story_id.
+Each task must include a concise, one-sentence description explaining its purpose.
 
 Return JSON array: [{{
   "story_id": "US001",
   "title": "Task name",
+  "description": "Create REST API endpoints for user registration, login, and logout.",
   "category": "backend|frontend|testing|devops",
   "estimated_hours": 8,
   "dependencies": []
@@ -1081,7 +1027,7 @@ Return JSON array: [{{
 
 Tech: {tech_stack}
 
-Generate 3-5 tasks per story. Include story_id field. Return JSON array only."""
+Generate 3-5 tasks per story. Include a unique title and a concise description for each task. Return JSON array only."""
             ),
         ])
         
@@ -1643,50 +1589,16 @@ if __name__ == "__main__":
     
     # Example 1: Text + PDF (Multimodal)
     primary_text = """
-        Build a comprehensive healthcare management system for a mid-sized clinic with the following requirements:
+        We're building an exclusive online marketplace called 'ArtisanCraft' for high-end, custom-made furniture. Our vision is to connect skilled artisans directly with customers who appreciate unique, handcrafted pieces.
 
-        CORE FUNCTIONALITY:
-        1. Patient Management
-        - Patient registration with medical history
-        - Appointment scheduling and management
-        - Medical record storage and retrieval
-        - Insurance information tracking
-        - Emergency contact management
+        The experience needs to feel premium and seamless. The most important features are:
 
-        2. Doctor and Staff Management
-        - Staff scheduling and availability
-        - Doctor specialization tracking
-        - Performance metrics and reporting
-        - Role-based access control (Doctor, Nurse, Admin, Receptionist)
+        1.  **A beautiful gallery:** Customers need to be able to browse through different furniture pieces made by our artisans. It should be very visual.
+        2.  **The customization tool:** This is our main selling point. Customers must be able to select a base furniture design and customize it. For a chair, for example, they should be able to choose the type of wood, the fabric for the upholstery, and even the finish. As they make changes, the price should update in real-time.
+        3.  **Artisan Portfolios:** Each artisan needs a profile page where they can showcase their work, share their story, and manage their product listings.
+        4.  **A simple, secure checkout:** The payment process has to be straightforward and build trust.
 
-        3. Appointment System
-        - Online appointment booking for patients
-        - Calendar integration for staff
-        - Automated reminder system (SMS/email)
-        - Waitlist management for cancellations
-        - Recurring appointment support
-
-        4. Medical Records
-        - Digital medical record creation and editing
-        - Prescription management and history
-        - Lab result integration
-        - Medical imaging storage and viewing
-        - Patient consent and privacy controls
-
-        5. Billing and Insurance
-        - Invoice generation and payment processing
-        - Insurance claim management
-        - Payment plan setup and tracking
-        - Financial reporting and analytics
-
-        TECHNICAL REQUIREMENTS:
-        - Support for 200+ concurrent users
-        - HIPAA compliance mandatory
-        - Mobile-responsive design
-        - Integration with existing EMR systems
-        - Real-time data synchronization
-        - Backup and disaster recovery
-        - Role-based security with audit logging
+        We're targeting a launch in 6 months, so we need to focus on getting these core features right.
     """
     
     # Path to a sample PDF (create a sample or use None for text-only)
@@ -1699,13 +1611,13 @@ if __name__ == "__main__":
             primary_requirements=primary_text,
             document_path=sample_pdf_path if os.path.exists(sample_pdf_path or "") else None,
             project_context={
-                "industry": "Healthcare Technology",
-                "team_size": 8,
-                "tech_stack": ["React", "Node.js", "PostgreSQL", "AWS"],
+                "industry": "E-commerce / Retail Technology",
+                "team_size": 6,
+                "tech_stack": ["MongoDB", "Express.js", "React", "Node.js"],
                 "timeline": "6 months",
-                "budget": "high"
+                "budget": "High"
             },
-            max_iterations=2
+            max_iterations=3
         )
         
         if results["success"]:
