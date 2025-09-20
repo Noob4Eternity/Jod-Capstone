@@ -8,7 +8,7 @@ Endpoints:
 Implementation uses the updated multimodal workflow for consistent processing.
 """
 import os
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Body
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
@@ -27,12 +27,9 @@ if not GEMINI_API_KEY:
     raise ValueError("GEMINI_API_KEY environment variable not set. Please set it in your .env file.")
 
 # Import the updated multimodal functions
-from user_story import (
-    test_multimodal_workflow,
-    create_multimodal_documentation,
-    create_story_workflow,
-    _extract_text_from_file
-)
+from user_story import test_multimodal_workflow
+from document_utils import create_multimodal_documentation, _extract_text_from_file
+from workflow import create_story_workflow
 
 app = FastAPI(title="User Story Generation API", version="0.2.0")
 
@@ -54,6 +51,7 @@ class GenerationResponse(BaseModel):
     status: Optional[str]
     multimodal_metadata: Optional[dict] = None  # New field
     source_info: Optional[dict] = None  # New field
+    supabase_storage: Optional[dict] = None  # New field for Supabase results
     error: Optional[str] = None
 
 # ------------- HELPERS -------------
@@ -89,7 +87,8 @@ def _run_multimodal_workflow(
                 "iterations": results["workflow_results"]["total_iterations"],
                 "status": results["workflow_results"]["final_status"],
                 "multimodal_metadata": results.get("multimodal_metadata", {}),
-                "processing_time": results.get("processing_time", {})
+                "processing_time": results.get("processing_time", {}),
+                "supabase_storage": results.get("supabase_storage", {})  # Include Supabase results
             }
         else:
             return {
@@ -325,47 +324,66 @@ async def root():
             "unified": "/generate (supports text + PDF in single request)",
             "text_only": "/generate/text (legacy)",
             "pdf_only": "/generate/pdf (legacy)",
+            "save_to_supabase": "/save-to-supabase (manual Supabase storage)",
             "health": "/health"
         },
         "features": [
             "Multimodal input processing (text + PDF)",
             "User story generation with validation",
             "Development task generation",
+            "Automatic Supabase storage integration",
             "Source traceability",
             "Iterative improvement"
         ],
         "docs": "/docs"
     }
 
-# ------------- TESTING ENDPOINT (OPTIONAL) -------------
+# ------------- SUPABASE STORAGE ENDPOINT -------------
 
-@app.post("/test/multimodal")
-async def test_multimodal_endpoint(
-    requirements: str = Form(..., description="Test requirements text"),
-    max_iterations: int = Form(default=2, description="Max iterations for testing")
+@app.post("/save-to-supabase")
+async def save_to_supabase_endpoint(
+    project_data: Dict[str, Any] = Body(..., description="Complete project data to save to Supabase")
 ):
-    """Test endpoint to verify multimodal functionality works."""
+    """
+    Save project data to Supabase database.
+    
+    This endpoint can be used to manually save project data to Supabase,
+    or to save data that was generated through other means.
+    """
     try:
-        result = _run_multimodal_workflow(
-            primary_requirements=requirements,
-            document_path=None,
-            project_context={"industry": "Technology", "team_size": 5},
-            project_id="TEST-001",
-            max_iterations=max_iterations
-        )
+        # Import the integrated Supabase agent
+        from agents.supabase_agent import SupabaseWorkflowAgent
         
-        return {
-            "test_result": "success" if result["success"] else "failed",
-            "user_stories_count": len(result.get("user_stories", [])),
-            "tasks_count": len(result.get("tasks", [])),
-            "validation_score": result.get("validation_score"),
-            "details": result
-        }
+        # Initialize Supabase agent
+        storage_agent = SupabaseWorkflowAgent()
+        
+        # Save the project data
+        project_db_id = storage_agent.save_project_data(project_data)
+        
+        if project_db_id:
+            return {
+                "success": True,
+                "message": "Project data saved to Supabase successfully",
+                "supabase_project_id": project_db_id,
+                "user_stories_saved": len(project_data.get("user_stories", [])),
+                "tasks_saved": len(project_data.get("tasks", []))
+            }
+        else:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to save project data to Supabase"
+            )
+            
+    except ImportError:
+        raise HTTPException(
+            status_code=500,
+            detail="Supabase dependencies not available"
+        )
     except Exception as e:
-        return {
-            "test_result": "error",
-            "error": str(e)
-        }
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error saving to Supabase: {str(e)}"
+        )
 
 if __name__ == "__main__":
     uvicorn.run(

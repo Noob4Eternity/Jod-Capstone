@@ -9,3 +9,4 @@ uvicorn
 python-multipart
 pypdf2
 docx
+supabase
