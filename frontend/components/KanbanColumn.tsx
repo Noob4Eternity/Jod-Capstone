@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Task, TaskStatus, Column } from '@/types/kanban';
+import { Task, Column } from '@/types/kanban';
 import { KanbanCard } from './KanbanCard';
 import { Plus, MoreVertical } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -9,8 +9,9 @@ import { cn } from '@/lib/utils';
 interface KanbanColumnProps {
   column: Column;
   tasks: Task[];
+  stories?: Record<string, { id: string; title: string; storyId: string }>;
   onAddTask?: () => void;
-  onTaskMove?: (taskId: string, newStatus: TaskStatus) => void;
+  onTaskMove?: (taskId: string, newStatusId: number) => void;
   onTaskEdit?: (task: Task) => void;
   onTaskDelete?: (taskId: string) => void;
 }
@@ -18,6 +19,7 @@ interface KanbanColumnProps {
 export const KanbanColumn: React.FC<KanbanColumnProps> = ({
   column,
   tasks,
+  stories = {},
   onAddTask,
   onTaskMove,
   onTaskEdit,
@@ -43,7 +45,7 @@ export const KanbanColumn: React.FC<KanbanColumnProps> = ({
     
     const taskId = e.dataTransfer.getData('text/plain');
     if (taskId && onTaskMove) {
-      onTaskMove(taskId, column.id);
+      onTaskMove(taskId, column.statusId);
     }
     setDraggedTask(null);
   };
@@ -143,7 +145,7 @@ export const KanbanColumn: React.FC<KanbanColumnProps> = ({
       {/* Tasks Container */}
       <div
         className={cn(
-          'flex-1 space-y-3 min-h-[200px] transition-colors rounded-lg p-4 mx-4 mb-4',
+          'flex-1 space-y-3 min-h-[200px] max-h-[600px] overflow-y-auto transition-colors rounded-lg p-4 mx-4 mb-4',
           'bg-white bg-opacity-60',
           isDragOver && 'bg-blue-100 border-2 border-dashed border-blue-400'
         )}
@@ -156,15 +158,47 @@ export const KanbanColumn: React.FC<KanbanColumnProps> = ({
             {isDragOver ? 'Drop task here' : 'No tasks yet'}
           </div>
         ) : (
-          tasks.map((task) => (
-            <KanbanCard
-              key={task.id}
-              task={task}
-              onEdit={onTaskEdit}
-              onDelete={onTaskDelete}
-              isDragging={draggedTask === task.id}
-            />
-          ))
+          // Group tasks by story_id
+          (() => {
+            const groupedTasks = tasks.reduce((groups, task) => {
+              const storyId = task.storyId || 'no-story';
+              if (!groups[storyId]) {
+                groups[storyId] = [];
+              }
+              groups[storyId].push(task);
+              return groups;
+            }, {} as Record<string, typeof tasks>);
+
+            return Object.entries(groupedTasks).map(([storyId, storyTasks]) => (
+              <div
+                key={storyId}
+                className="mb-4 p-3 border-2 border-gray-200 rounded-lg bg-gray-50 bg-opacity-50"
+              >
+                {/* Story Header */}
+                <div className="mb-2 pb-2 border-b border-gray-300">
+                  <h4 className="text-sm font-medium text-gray-700">
+                    {storyId === 'no-story' 
+                      ? 'Unassigned Tasks' 
+                      : stories[storyId]?.title || `Story: ${stories[storyId]?.storyId || storyId}`
+                    }
+                  </h4>
+                </div>
+
+                {/* Tasks in this story */}
+                <div className="space-y-3">
+                  {storyTasks.map((task) => (
+                    <KanbanCard
+                      key={task.id}
+                      task={task}
+                      onEdit={onTaskEdit}
+                      onDelete={onTaskDelete}
+                      isDragging={draggedTask === task.id}
+                    />
+                  ))}
+                </div>
+              </div>
+            ));
+          })()
         )}
       </div>
 

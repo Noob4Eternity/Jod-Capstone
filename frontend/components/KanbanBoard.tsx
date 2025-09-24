@@ -1,56 +1,130 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { KanbanColumn } from './KanbanColumn';
 import { AddTaskModal } from './AddTaskModal';
+import { Task, Column, CreateTaskData } from '@/types/kanban';
+import { Search, Filter, Settings, Users, ArrowLeft } from 'lucide-react';
+import Link from 'next/link';
+import { supabase } from '@/lib/supabase';
 import { useKanban } from '@/hooks/useKanban';
-import { Task, Column } from '@/types/kanban';
-import { Search, Filter, Settings, Users } from 'lucide-react';
 
 const defaultColumns: Column[] = [
   {
-    id: 'backlog',
-    title: 'Backlog',
-    color: 'bg-gray-400',
-  },
-  {
     id: 'todo',
+    statusId: 1,
     title: 'To Do',
     color: 'bg-blue-500',
     limit: 5,
+    orderIndex: 10,
   },
   {
     id: 'in-progress',
+    statusId: 2,
     title: 'In Progress',
     color: 'bg-yellow-500',
     limit: 3,
+    orderIndex: 20,
   },
   {
     id: 'review',
-    title: 'Review',
+    statusId: 3,
+    title: 'In Review',
     color: 'bg-purple-500',
+    orderIndex: 30,
   },
   {
     id: 'done',
+    statusId: 4,
     title: 'Done',
     color: 'bg-green-500',
+    orderIndex: 40,
   },
 ];
 
-export const KanbanBoard: React.FC = () => {
+export const KanbanBoard: React.FC<{ projectId?: string }> = ({ projectId }) => {
   const {
     tasks,
+    stories,
+    isLoading,
     addTask,
     updateTask,
     deleteTask,
     moveTask,
     getTasksByStatus,
-  } = useKanban();
+  } = useKanban(projectId);
 
+  const [columns, setColumns] = useState<Column[]>(defaultColumns);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterPriority, setFilterPriority] = useState<string>('all');
+  const [projectName, setProjectName] = useState<string>('');
+
+  // Fetch task statuses and project name from database
+  useEffect(() => {
+    const fetchBoardData = async () => {
+      if (!projectId) return;
+
+      try {
+        // Fetch task statuses
+        const { data: statusData, error: statusError } = await supabase
+          .from('task_status')
+          .select('id, status_name, order_index')
+          .order('order_index');
+
+        if (!statusError && statusData) {
+          // Create columns from database statuses
+          const dbColumns: Column[] = statusData.map((status, index) => ({
+            id: status.status_name.toLowerCase().replace(' ', '-'),
+            statusId: status.id,
+            title: status.status_name,
+            color: getStatusColor(status.status_name),
+            orderIndex: status.order_index,
+            limit: getStatusLimit(status.status_name),
+          }));
+          setColumns(dbColumns);
+        }
+
+        // Fetch project name
+        const { data: projectData, error: projectError } = await supabase
+          .from('projects')
+          .select('name')
+          .eq('id', projectId)
+          .single();
+
+        if (!projectError && projectData) {
+          setProjectName(projectData.name);
+        } else {
+          setProjectName(projectId);
+        }
+      } catch (error) {
+        console.error('Error fetching board data:', error);
+        setProjectName(projectId || 'Project Board');
+      }
+    };
+
+    fetchBoardData();
+  }, [projectId]);
+
+  // Helper functions
+  const getStatusColor = (statusName: string): string => {
+    switch (statusName.toLowerCase()) {
+      case 'to do': return 'bg-blue-500';
+      case 'in progress': return 'bg-yellow-500';
+      case 'in review': return 'bg-purple-500';
+      case 'done': return 'bg-green-500';
+      default: return 'bg-gray-500';
+    }
+  };
+
+  const getStatusLimit = (statusName: string): number | undefined => {
+    switch (statusName.toLowerCase()) {
+      case 'to do': return 5;
+      case 'in progress': return 3;
+      default: return undefined;
+    }
+  };
 
   const handleTaskEdit = (task: Task) => {
     setSelectedTask(task);
@@ -71,24 +145,43 @@ export const KanbanBoard: React.FC = () => {
     return matchesSearch && matchesPriority;
   });
 
-  const getFilteredTasksByStatus = (status: string) => {
-    return filteredTasks.filter(task => task.status === status);
+  const getFilteredTasksByStatus = (statusId: number) => {
+    return filteredTasks.filter(task => task.statusId === statusId);
   };
 
   const totalTasks = tasks.length;
-  const completedTasks = tasks.filter(task => task.status === 'done').length;
+  const completedTasks = tasks.filter(task => task.statusId === 4).length; // Assuming statusId 4 is 'done'
   const completionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-screen bg-gray-100 flex flex-col">
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Project Board</h1>
-            <p className="text-sm text-gray-600 mt-1">
-              {totalTasks} tasks • {completedTasks} completed • {completionRate}% done
-            </p>
+          <div className="flex items-center gap-4">
+            <Link
+              href="/projects"
+              className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
+            >
+              <ArrowLeft size={18} />
+              <span className="text-sm font-medium">Back to Projects</span>
+            </Link>
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">
+                {projectName || 'Project Board'}
+              </h1>
+              <p className="text-sm text-gray-600 mt-1">
+                {totalTasks} tasks • {completedTasks} completed • {completionRate}% done
+              </p>
+            </div>
           </div>
           
           <div className="flex items-center gap-4">
@@ -136,17 +229,20 @@ export const KanbanBoard: React.FC = () => {
       {/* Board */}
       <div className="flex-1 overflow-x-auto overflow-y-hidden">
         <div className="flex gap-6 p-6 h-full min-w-max">
-          {defaultColumns.map((column) => (
-            <KanbanColumn
-              key={column.id}
-              column={column}
-              tasks={getFilteredTasksByStatus(column.id)}
-              onAddTask={() => setIsAddModalOpen(true)}
-              onTaskMove={moveTask}
-              onTaskEdit={handleTaskEdit}
-              onTaskDelete={handleTaskDelete}
-            />
-          ))}
+          {columns
+            .sort((a, b) => a.orderIndex - b.orderIndex)
+            .map((column) => (
+              <KanbanColumn
+                key={column.id}
+                column={column}
+                tasks={getFilteredTasksByStatus(column.statusId)}
+                stories={stories}
+                onAddTask={() => setIsAddModalOpen(true)}
+                onTaskMove={moveTask}
+                onTaskEdit={handleTaskEdit}
+                onTaskDelete={handleTaskDelete}
+              />
+            ))}
         </div>
       </div>
 
@@ -155,6 +251,7 @@ export const KanbanBoard: React.FC = () => {
         isOpen={isAddModalOpen}
         onClose={() => setIsAddModalOpen(false)}
         onSubmit={addTask}
+        availableStatuses={columns}
       />
 
       {/* AI Assistant Fab (Future Enhancement) */}

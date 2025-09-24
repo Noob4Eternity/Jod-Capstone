@@ -9,20 +9,28 @@ interface AddTaskModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (taskData: CreateTaskData) => void;
+  availableStatuses?: Array<{ id: string; statusId: number; title: string; color: string }>;
 }
 
 export const AddTaskModal: React.FC<AddTaskModalProps> = ({
   isOpen,
   onClose,
   onSubmit,
+  availableStatuses = [],
 }) => {
   const [formData, setFormData] = useState<CreateTaskData>({
     title: '',
     description: '',
     priority: 'medium',
+    statusId: availableStatuses.length > 0 ? availableStatuses[0].statusId : 1,
     assignee: '',
     dueDate: undefined,
     tags: [],
+    category: '',
+    estimatedHours: undefined,
+    acceptanceCriteria: [],
+    technicalNotes: '',
+    dependencies: [],
   });
   
   const [tagInput, setTagInput] = useState('');
@@ -57,9 +65,15 @@ export const AddTaskModal: React.FC<AddTaskModalProps> = ({
       title: '',
       description: '',
       priority: 'medium',
+      statusId: availableStatuses.length > 0 ? availableStatuses[0].statusId : 1,
       assignee: '',
       dueDate: undefined,
       tags: [],
+      category: '',
+      estimatedHours: undefined,
+      acceptanceCriteria: [],
+      technicalNotes: '',
+      dependencies: [],
     });
     setTagInput('');
     setErrors({});
@@ -152,21 +166,100 @@ export const AddTaskModal: React.FC<AddTaskModalProps> = ({
             )}
           </div>
 
-          {/* Priority */}
+          {/* Status */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
-              Priority
+              Status
             </label>
             <select
-              value={formData.priority}
-              onChange={(e) => setFormData(prev => ({ ...prev, priority: e.target.value as Priority }))}
+              value={formData.statusId}
+              onChange={(e) => setFormData(prev => ({ ...prev, statusId: parseInt(e.target.value) }))}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              <option value="low">Low</option>
-              <option value="medium">Medium</option>
-              <option value="high">High</option>
-              <option value="urgent">Urgent</option>
+              {availableStatuses.map((status) => (
+                <option key={status.statusId} value={status.statusId}>
+                  {status.title}
+                </option>
+              ))}
             </select>
+          </div>
+
+          {/* Category */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Category
+            </label>
+            <input
+              type="text"
+              value={formData.category || ''}
+              onChange={(e) => setFormData(prev => ({ ...prev, category: e.target.value }))}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="e.g., Frontend, Backend, Testing..."
+            />
+          </div>
+
+          {/* Estimated Hours */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Estimated Hours
+            </label>
+            <input
+              type="number"
+              value={formData.estimatedHours || ''}
+              onChange={(e) => setFormData(prev => ({ ...prev, estimatedHours: e.target.value ? parseFloat(e.target.value) : undefined }))}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="0.0"
+              min="0"
+              step="0.5"
+            />
+          </div>
+
+          {/* Acceptance Criteria */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Acceptance Criteria
+            </label>
+            <textarea
+              value={formData.acceptanceCriteria?.join('\n') || ''}
+              onChange={(e) => setFormData(prev => ({ 
+                ...prev, 
+                acceptanceCriteria: e.target.value.split('\n').filter(line => line.trim()) 
+              }))}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+              rows={3}
+              placeholder="Enter each criterion on a new line..."
+            />
+          </div>
+
+          {/* Technical Notes */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Technical Notes
+            </label>
+            <textarea
+              value={formData.technicalNotes || ''}
+              onChange={(e) => setFormData(prev => ({ ...prev, technicalNotes: e.target.value }))}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+              rows={2}
+              placeholder="Technical implementation details..."
+            />
+          </div>
+
+          {/* Dependencies */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Dependencies
+            </label>
+            <textarea
+              value={formData.dependencies?.join('\n') || ''}
+              onChange={(e) => setFormData(prev => ({ 
+                ...prev, 
+                dependencies: e.target.value.split('\n').filter(line => line.trim()) 
+              }))}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+              rows={2}
+              placeholder="Enter each dependency on a new line..."
+            />
           </div>
 
           {/* Assignee */}

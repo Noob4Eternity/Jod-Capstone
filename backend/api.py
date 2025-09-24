@@ -10,6 +10,7 @@ Implementation uses the updated multimodal workflow for consistent processing.
 import os
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Body
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional, Dict, Any, List
 import tempfile
@@ -32,6 +33,15 @@ from document_utils import create_multimodal_documentation, _extract_text_from_f
 from workflow import create_story_workflow
 
 app = FastAPI(title="User Story Generation API", version="0.2.0")
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],  # Frontend URLs
+    allow_credentials=True,
+    allow_methods=["*"],  # Allow all HTTP methods
+    allow_headers=["*"],  # Allow all headers
+)
 
 # ------------- MODELS -------------
 
@@ -215,6 +225,11 @@ async def generate_unified(
             "multimodal": has_text and has_pdfs
         }
         
+        # If Supabase storage was successful, use the Supabase UUID as the project_id
+        if result.get("supabase_storage", {}).get("success") and result.get("supabase_storage", {}).get("project_id"):
+            result["project_id"] = result["supabase_storage"]["project_id"]
+            print(f"Using Supabase UUID as project_id: {result['project_id']}")
+        
         return GenerationResponse(**result)
         
     except Exception as e:
@@ -246,6 +261,10 @@ async def generate_from_text(payload: TextGenerationRequest):
             "pdf_provided": False,
             "multimodal": False
         }
+        
+        # If Supabase storage was successful, use the Supabase UUID as the project_id
+        if result.get("supabase_storage", {}).get("success") and result.get("supabase_storage", {}).get("project_id"):
+            result["project_id"] = result["supabase_storage"]["project_id"]
         
         return GenerationResponse(**result)
     except Exception as e:
@@ -296,6 +315,10 @@ async def generate_from_pdf(
             "pdf_filename": file.filename,
             "multimodal": False
         }
+        
+        # If Supabase storage was successful, use the Supabase UUID as the project_id
+        if result.get("supabase_storage", {}).get("success") and result.get("supabase_storage", {}).get("project_id"):
+            result["project_id"] = result["supabase_storage"]["project_id"]
 
         return GenerationResponse(**result)
         

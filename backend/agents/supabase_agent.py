@@ -47,7 +47,12 @@ class SupabaseWorkflowAgent:
             start_time = datetime.now()
 
             # Prepare project data for Supabase (only include fields that exist)
-            project_name = f"Project_{state.get('project_id', 'Unnamed')}"
+            # Use project title if available, otherwise generate from project_id
+            project_title = None
+            if state.get("project_context"):
+                project_title = state["project_context"].get("title") or state["project_context"].get("name")
+            
+            project_name = project_title or f"Project_{state.get('project_id', 'Unnamed')}"
             project_data = {
                 "name": project_name,
                 "validation_score": state.get("validation_score"),
@@ -150,7 +155,12 @@ class SupabaseWorkflowAgent:
 
         try:
             # 1. Create the Project
-            project_name = f"Project_{data.get('project_id', 'Unnamed')}"
+            # Use project title if available, otherwise generate from project_id
+            project_title = None
+            if data.get("project_context"):
+                project_title = data["project_context"].get("title") or data["project_context"].get("name")
+            
+            project_name = project_title or f"Project_{data.get('project_id', 'Unnamed')}"
             project_data = {
                 "name": project_name,
                 "project_context": data.get("project_context"),
