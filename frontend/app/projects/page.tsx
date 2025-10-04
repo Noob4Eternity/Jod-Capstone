@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Calendar, Users, CheckCircle, Clock, Plus } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { ThemeToggleButton2 } from "@/components/theme-button";
-
+import { SignOutButton } from "@/components/SignOutButton"
 interface Project {
   id: string;
   title: string;

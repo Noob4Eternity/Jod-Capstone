@@ -8,6 +8,7 @@ import { Search, Filter, Settings, Users, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
 import { supabase } from '@/lib/supabase';
 import { useKanban } from '@/hooks/useKanban';
+import { SignOutButton } from './SignOutButton';
 
 const defaultColumns: Column[] = [
   {
@@ -221,6 +222,7 @@ export const KanbanBoard: React.FC<{ projectId?: string }> = ({ projectId }) => 
               <button className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors">
                 <Settings size={18} />
               </button>
+              <SignOutButton variant="solid" size="sm" />
             </div>
           </div>
         </div>
