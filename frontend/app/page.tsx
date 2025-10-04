@@ -9,9 +9,8 @@ import { Highlighter } from "@/components/ui/highlighter";
 export default function Home() {
   const menuItems = [
     { label: "Menu", ariaLabel: "Go to home page", link: "/menu" },
-    { label: "About", ariaLabel: "Learn about us", link: "/about" },
-    { label: "Services", ariaLabel: "View our services", link: "/services" },
-    { label: "Contact", ariaLabel: "Get in touch", link: "/contact" },
+    { label: "Projects", ariaLabel: "View all Projects", link: "/projects" },
+    { label: "Agent", ariaLabel: "View our agent", link: "/requirements" },
   ];
 
   const socialItems = [

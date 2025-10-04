@@ -1,30 +1,35 @@
 import Image from "next/image";
 import Link from "next/link";
+import { ThemeToggleButton2 } from "@/components/theme-button"; // ✅ import dark mode button
 
 export default function Menu() {
   return (
     <div>
-      <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-        <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
+      {/* ✅ Dark mode toggle button */}
+      <ThemeToggleButton2 className="fixed bottom-5 left-5 h-8 w-8 text-primary bg-transparent z-50 cursor-pointer" />
+
+      <div className="font-sans grid grid-rows-[2px_1fr_2px] items-center justify-items-center min-h-screen pb-5 gap-10">
+        <main className="flex flex-col gap-[16px] row-start-2 items-center sm:items-start">
+          {/* Header */}
           <div className="text-center sm:text-left">
-            <h1 className="text-4xl font-bold text-gray-900 mb-2">Agentic AI Project Manager</h1>
-            <p className="text-lg text-gray-600 mb-8">
+            <h1 className="text-4xl font-bold text-primary mb-1">Agentic AI Project Manager</h1>
+            <p className="text-md text-secondary-foreground italic mb-1">
               Intelligent project management powered by AI agents and Kanban boards
             </p>
           </div>
 
+          {/* Cards */}
           <div className="flex flex-col gap-4 items-center sm:items-start">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 w-full max-w-2xl">
-              {/* Kanban Board Card */}
-                            {/* Projects Card */}
+              {/* Projects Card */}
               <Link
                 href="/projects"
                 className="group">
-                <div className="p-6 bg-white border border-gray-200 rounded-lg hover:border-blue-300 hover:shadow-lg transition-all duration-200">
+                <div className="p-6 bg-card border border-border rounded-lg hover:border-primary hover:shadow-lg transition-all duration-200">
                   <div className="flex items-center gap-3 mb-3">
-                    <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
+                    <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
                       <svg
-                        className="w-5 h-5 text-blue-600"
+                        className="w-5 h-5 text-primary"
                         fill="none"
                         stroke="currentColor"
                         viewBox="0 0 24 24">
@@ -36,12 +41,12 @@ export default function Menu() {
                         />
                       </svg>
                     </div>
-                    <h3 className="font-semibold text-gray-900">Projects</h3>
+                    <h3 className="font-semibold text-foreground">Projects</h3>
                   </div>
-                  <p className="text-sm text-gray-600 mb-4">
+                  <p className="text-sm text-muted-foreground mb-4 italic ">
                     Browse and manage all your projects. View Kanban boards for each project.
                   </p>
-                  <div className="text-blue-600 text-sm font-medium group-hover:text-blue-700">
+                  <div className="text-primary text-sm font-medium group-hover:text-accent-foreground">
                     View Projects →
                   </div>
                 </div>
@@ -51,11 +56,11 @@ export default function Menu() {
               <Link
                 href="/requirements"
                 className="group">
-                <div className="p-6 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:shadow-lg transition-all duration-200">
+                <div className="p-6 bg-card border border-border rounded-lg hover:border-primary hover:shadow-lg transition-all duration-200">
                   <div className="flex items-center gap-3 mb-3">
-                    <div className="w-10 h-10 bg-purple-100 rounded-lg flex items-center justify-center">
+                    <div className="w-10 h-10 bg-primary/10 rounded-lg flex items-center justify-center">
                       <svg
-                        className="w-5 h-5 text-purple-600"
+                        className="w-5 h-5 text-primary"
                         fill="none"
                         stroke="currentColor"
                         viewBox="0 0 24 24">
@@ -67,21 +72,24 @@ export default function Menu() {
                         />
                       </svg>
                     </div>
-                    <h3 className="font-semibold text-gray-900">AI Agents</h3>
+                    <h3 className="font-semibold text-foreground">AI Agent</h3>
                   </div>
-                  <p className="text-sm text-gray-600 mb-4">
-                    Deploy intelligent agents to generate user stories and tasks from your requirements.
+                  <p className="text-sm text-muted-foreground mb-4 italic">
+                    Deploy intelligent agents to generate user stories and tasks from your
+                    requirements.
                   </p>
-                  <div className="text-purple-600 text-sm font-medium group-hover:text-purple-700">
+                  <div className="text-primary text-sm font-medium group-hover:text-accent-foreground">
                     Generate Stories →
                   </div>
                 </div>
-              </Link>              {/* Analytics Card */}
-              <div className="p-6 bg-white border border-gray-200 rounded-lg opacity-60">
+              </Link>
+
+              {/* Analytics Card (Disabled) */}
+              <div className="p-6 bg-card border border-border rounded-lg opacity-60">
                 <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 bg-green-100 rounded-lg flex items-center justify-center">
+                  <div className="w-10 h-10 bg-chart-3/30 rounded-lg flex items-center justify-center">
                     <svg
-                      className="w-5 h-5 text-green-600"
+                      className="w-5 h-5 text-chart-3"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24">
@@ -93,20 +101,20 @@ export default function Menu() {
                       />
                     </svg>
                   </div>
-                  <h3 className="font-semibold text-gray-900">Analytics</h3>
+                  <h3 className="font-semibold text-foreground">Analytics</h3>
                 </div>
-                <p className="text-sm text-gray-600 mb-4">
+                <p className="text-sm text-muted-foreground mb-4">
                   Get insights into team productivity, project timelines, and performance metrics.
                 </p>
-                <div className="text-gray-400 text-sm font-medium">Coming Soon...</div>
+                <div className="text-muted-foreground text-sm font-medium">Coming Soon...</div>
               </div>
 
-              {/* Settings Card */}
-              <div className="p-6 bg-white border border-gray-200 rounded-lg opacity-60">
+              {/* Settings Card (Disabled) */}
+              <div className="p-6 bg-card border border-border rounded-lg opacity-50">
                 <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 bg-gray-100 rounded-lg flex items-center justify-center">
+                  <div className="w-10 h-10 bg-foreground/10 rounded-lg flex items-center justify-center">
                     <svg
-                      className="w-5 h-5 text-gray-600"
+                      className="w-5 h-5 text-muted-foreground/70"
                       fill="none"
                       stroke="currentColor"
                       viewBox="0 0 24 24">
@@ -124,20 +132,21 @@ export default function Menu() {
                       />
                     </svg>
                   </div>
-                  <h3 className="font-semibold text-gray-900">Project Settings</h3>
+                  <h3 className="font-semibold text-foreground">Project Settings</h3>
                 </div>
-                <p className="text-sm text-gray-600 mb-4">
+                <p className="text-sm text-muted-foreground mb-4">
                   Configure your workspace, team members, and project preferences.
                 </p>
-                <div className="text-gray-400 text-sm font-medium">Coming Soon...</div>
+                <div className="text-muted-foreground text-sm font-medium">Coming Soon...</div>
               </div>
             </div>
           </div>
 
+          {/* Actions */}
           <div className="flex gap-4 items-center flex-col sm:flex-row mt-8">
-            <Link
+            {/* <Link
               href="/projects"
-              className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-blue-600 text-white gap-2 hover:bg-blue-700 font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto">
+              className="rounded-full transition-colors flex items-center justify-center bg-primary text-primary-foreground gap-2 hover:bg-primary/80 font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto">
               <svg
                 className="w-4 h-4"
                 fill="none"
@@ -151,9 +160,10 @@ export default function Menu() {
                 />
               </svg>
               View Projects
-            </Link>
+            </Link> */}
+
             <a
-              className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
+              className="rounded-full border border-border transition-colors flex items-center justify-center hover:bg-muted font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
               href="https://github.com/Noob4Eternity/Jod-Capstone"
               target="_blank"
               rel="noopener noreferrer">
@@ -161,11 +171,13 @@ export default function Menu() {
             </a>
           </div>
         </main>
-        <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-          <div className="text-sm text-gray-500">
-            Built with Next.js, TypeScript, and Tailwind CSS
-          </div>
-        </footer>
+
+        {/* Footer */}
+        {/* <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
+            <div className="text-sm text-muted-foreground">
+              Built with Next.js, TypeScript, and Tailwind CSS
+            </div>
+          </footer> */}
       </div>
     </div>
   );
