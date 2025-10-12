@@ -1,10 +1,10 @@
-'use client';
+"use client";
 
-import React, { useState } from 'react';
-import { Task, Column } from '@/types/kanban';
-import { KanbanCard } from './KanbanCard';
-import { Plus, MoreVertical } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import React, { useState } from "react";
+import { Task, Column } from "@/types/kanban";
+import { KanbanCard } from "./KanbanCard";
+import { Plus, MoreVertical } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface KanbanColumnProps {
   column: Column;
@@ -14,6 +14,7 @@ interface KanbanColumnProps {
   onTaskMove?: (taskId: string, newStatusId: number) => void;
   onTaskEdit?: (task: Task) => void;
   onTaskDelete?: (taskId: string) => void;
+  onTaskClick?: (task: Task) => void;
 }
 
 export const KanbanColumn: React.FC<KanbanColumnProps> = ({
@@ -24,13 +25,14 @@ export const KanbanColumn: React.FC<KanbanColumnProps> = ({
   onTaskMove,
   onTaskEdit,
   onTaskDelete,
+  onTaskClick,
 }) => {
   const [isDragOver, setIsDragOver] = useState(false);
   const [draggedTask, setDraggedTask] = useState<string | null>(null);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
+    e.dataTransfer.dropEffect = "move";
     setIsDragOver(true);
   };
 
@@ -42,8 +44,8 @@ export const KanbanColumn: React.FC<KanbanColumnProps> = ({
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
-    
-    const taskId = e.dataTransfer.getData('text/plain');
+
+    const taskId = e.dataTransfer.getData("text/plain");
     if (taskId && onTaskMove) {
       onTaskMove(taskId, column.statusId);
     }
@@ -52,91 +54,67 @@ export const KanbanColumn: React.FC<KanbanColumnProps> = ({
 
   const isAtLimit = column.limit && tasks.length >= column.limit;
 
-  // Extract color class name for styling
-  const getColumnColorClasses = () => {
-    const colorMap: Record<string, { bg: string; border: string; header: string; text: string }> = {
-      'bg-gray-400': { 
-        bg: 'bg-gray-50', 
-        border: 'border-gray-200', 
-        header: 'bg-gray-100 border-gray-300',
-        text: 'text-gray-700'
-      },
-      'bg-blue-500': { 
-        bg: 'bg-blue-50', 
-        border: 'border-blue-200', 
-        header: 'bg-blue-100 border-blue-300',
-        text: 'text-blue-700'
-      },
-      'bg-yellow-500': { 
-        bg: 'bg-yellow-50', 
-        border: 'border-yellow-200', 
-        header: 'bg-yellow-100 border-yellow-300',
-        text: 'text-yellow-700'
-      },
-      'bg-purple-500': { 
-        bg: 'bg-purple-50', 
-        border: 'border-purple-200', 
-        header: 'bg-purple-100 border-purple-300',
-        text: 'text-purple-700'
-      },
-      'bg-green-500': { 
-        bg: 'bg-green-50', 
-        border: 'border-green-200', 
-        header: 'bg-green-100 border-green-300',
-        text: 'text-green-700'
-      },
+  // Map column color to CSS variable names
+  const getColumnStyles = () => {
+    const colorKey = column.color;
+    return {
+      dotColor: `bg-${colorKey}`,
+      bgColor: `bg-${colorKey}-bg`,
+      borderColor: `border-${colorKey}-border`,
+      textColor: `text-${colorKey}`,
+      headerBg: `bg-${colorKey}-bg`,
     };
-    return colorMap[column.color] || colorMap['bg-gray-400'];
   };
 
-  const colorClasses = getColumnColorClasses();
+  const styles = getColumnStyles();
 
   return (
-    <div className={cn(
-      "flex flex-col h-full rounded-lg p-0 min-w-[300px] max-w-[350px] border-2",
-      colorClasses.bg,
-      colorClasses.border
-    )}>
-      {/* Column Header */}
-      <div className={cn(
-        "flex items-center justify-between mb-4 p-4 rounded-t-lg border-b-2",
-        colorClasses.header,
-        colorClasses.border
+    <div
+      className={cn(
+        "flex flex-col h-full rounded-lg p-0 min-w-[300px] max-w-[350px] border-2",
+        styles.bgColor,
+        styles.borderColor
       )}>
+      {/* Column Header */}
+      <div
+        className={cn(
+          "flex items-center justify-between mb-4 p-4 rounded-t-lg border-b-2",
+          styles.headerBg,
+          styles.borderColor
+        )}>
         <div className="flex items-center gap-2">
-          <div
-            className={cn('w-3 h-3 rounded-full', column.color)}
-          />
-          <h2 className={cn("font-semibold", colorClasses.text)}>{column.title}</h2>
-          <span className={cn(
-            'px-2 py-1 text-xs rounded-full border',
-            isAtLimit 
-              ? 'bg-red-100 text-red-700 border-red-300' 
-              : `bg-white ${colorClasses.text} ${colorClasses.border}`
-          )}>
+          <div className={cn("w-3 h-3 rounded-full", styles.dotColor)} />
+          <h2 className={cn("font-semibold", styles.textColor)}>{column.title}</h2>
+          <span
+            className={cn(
+              "px-2 py-1 text-xs rounded-full border",
+              isAtLimit
+                ? "bg-red-100 text-red-700 border-red-300"
+                : `bg-white ${styles.textColor} ${styles.borderColor}`
+            )}>
             {tasks.length}
             {column.limit && `/${column.limit}`}
           </span>
         </div>
-        
+
         <div className="flex items-center gap-1">
           <button
             onClick={onAddTask}
             disabled={!!isAtLimit}
             className={cn(
-              'p-1.5 rounded-md transition-colors',
+              "p-1.5 rounded-md transition-colors",
               isAtLimit
-                ? 'text-gray-300 cursor-not-allowed'
-                : `${colorClasses.text} hover:bg-white hover:bg-opacity-50`
+                ? "text-gray-300 cursor-not-allowed"
+                : `${styles.textColor} hover:bg-white hover:bg-opacity-50`
             )}
-            title={isAtLimit ? 'Column limit reached' : 'Add new task'}
-          >
+            title={isAtLimit ? "Column limit reached" : "Add new task"}>
             <Plus size={16} />
           </button>
-          <button className={cn(
-            "p-1.5 rounded-md transition-colors hover:bg-white hover:bg-opacity-50",
-            colorClasses.text
-          )}>
+          <button
+            className={cn(
+              "p-1.5 rounded-md transition-colors hover:bg-white hover:bg-opacity-50",
+              styles.textColor
+            )}>
             <MoreVertical size={16} />
           </button>
         </div>
@@ -145,23 +123,22 @@ export const KanbanColumn: React.FC<KanbanColumnProps> = ({
       {/* Tasks Container */}
       <div
         className={cn(
-          'flex-1 space-y-3 min-h-[200px] max-h-[600px] overflow-y-auto transition-colors rounded-lg p-4 mx-4 mb-4',
-          'bg-white bg-opacity-60',
-          isDragOver && 'bg-blue-100 border-2 border-dashed border-blue-400'
+          "flex-1 space-y-3 min-h-[200px] max-h-[600px] overflow-y-auto transition-colors rounded-lg p-4  mb-4",
+          "bg-card bg-opacity-60",
+          isDragOver && "bg-primary/10 border-2 border-dashed border-primary"
         )}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-      >
+        onDrop={handleDrop}>
         {tasks.length === 0 ? (
-          <div className="flex items-center justify-center h-32 text-gray-500 text-sm">
-            {isDragOver ? 'Drop task here' : 'No tasks yet'}
+          <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
+            {isDragOver ? "Drop task here" : "No tasks yet"}
           </div>
         ) : (
           // Group tasks by story_id
           (() => {
             const groupedTasks = tasks.reduce((groups, task) => {
-              const storyId = task.storyId || 'no-story';
+              const storyId = task.storyId || "no-story";
               if (!groups[storyId]) {
                 groups[storyId] = [];
               }
@@ -172,15 +149,13 @@ export const KanbanColumn: React.FC<KanbanColumnProps> = ({
             return Object.entries(groupedTasks).map(([storyId, storyTasks]) => (
               <div
                 key={storyId}
-                className="mb-4 p-3 border-2 border-gray-200 rounded-lg bg-gray-50 bg-opacity-50"
-              >
+                className="mb-4 p-3 border-2 border-border rounded-lg bg-card bg-opacity-50">
                 {/* Story Header */}
-                <div className="mb-2 pb-2 border-b border-gray-300">
-                  <h4 className="text-sm font-medium text-gray-700">
-                    {storyId === 'no-story' 
-                      ? 'Unassigned Tasks' 
-                      : stories[storyId]?.title || `Story: ${stories[storyId]?.storyId || storyId}`
-                    }
+                <div className="mb-2 pb-2 border-b border-border">
+                  <h4 className="text-sm font-medium text-foreground">
+                    {storyId === "no-story"
+                      ? "Unassigned Tasks"
+                      : stories[storyId]?.title || `Story: ${stories[storyId]?.storyId || storyId}`}
                   </h4>
                 </div>
 
@@ -192,6 +167,7 @@ export const KanbanColumn: React.FC<KanbanColumnProps> = ({
                       task={task}
                       onEdit={onTaskEdit}
                       onDelete={onTaskDelete}
+                      onClick={onTaskClick}
                       isDragging={draggedTask === task.id}
                     />
                   ))}
@@ -208,9 +184,9 @@ export const KanbanColumn: React.FC<KanbanColumnProps> = ({
           onClick={onAddTask}
           className={cn(
             "mx-4 mb-4 py-2 text-sm rounded-md transition-colors border-2 border-dashed hover:bg-white hover:bg-opacity-50",
-            `${colorClasses.text} ${colorClasses.border} hover:${colorClasses.border.replace('border-', 'border-')}-400`
-          )}
-        >
+            styles.textColor,
+            styles.borderColor
+          )}>
           + Add a task
         </button>
       )}

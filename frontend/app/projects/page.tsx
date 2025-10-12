@@ -4,8 +4,8 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { Calendar, Users, CheckCircle, Clock, Plus } from "lucide-react";
 import { supabase } from "@/lib/supabase";
-import { ThemeToggleButton2 } from "@/components/theme-button";
-import { SignOutButton } from "@/components/SignOutButton"
+import { FloatingNav } from "@/components/FloatingNav";
+import { FloatingUtilityBar } from "@/components/FloatingUtilityBar";
 interface Project {
   id: string;
   title: string;
@@ -26,13 +26,13 @@ export default function ProjectsPage() {
   const getStatusStyle = (status: Project["status"]) => {
     switch (status) {
       case "active":
-        return "bg-green-100 text-green-700 ring-1 ring-green-200";
+        return "bg-chart-2/10 text-chart-2 ring-1 ring-chart-2/20";
       case "completed":
-        return "bg-blue-100 text-blue-700 ring-1 ring-blue-200";
+        return "bg-chart-1/10 text-chart-1 ring-1 ring-chart-1/20";
       case "on-hold":
-        return "bg-yellow-100 text-yellow-700 ring-1 ring-yellow-200";
+        return "bg-chart-3/10 text-chart-3 ring-1 ring-chart-3/20";
       default:
-        return "bg-gray-100 text-gray-700 ring-1 ring-gray-200";
+        return "bg-muted text-muted-foreground ring-1 ring-border";
     }
   };
 
@@ -139,10 +139,12 @@ export default function ProjectsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background px-6 py-10">
-      <ThemeToggleButton2 className="fixed bottom-5 left-5 h-8 w-8 text-primary bg-transparent z-50 cursor-pointer" />
+    <div className="min-h-screen bg-background px-6 py-10 relative">
+      <FloatingNav />
+      <FloatingUtilityBar />
 
-      <div className="max-w-7xl mx-auto">
+      <div className="max-w-7xl mx-auto pt-20">
+        {/* Added pt-20 to push content below navbar */}
         {/* Header */}
         <div className="flex items-center justify-between mb-10">
           <div>
@@ -151,16 +153,12 @@ export default function ProjectsPage() {
               Manage your projects and view their Kanban boards
             </p>
           </div>
-          <div className="flex items-center gap-3">
-            <SignOutButton variant="solid" size="md" />
-            <Link
-              href="/requirements"
-              className="inline-flex items-center px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-            >
-              <Plus className="w-5 h-5 mr-2" />
-              New Project
-            </Link>
-          </div>
+          <Link
+            href="/requirements"
+            className="inline-flex items-center px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors">
+            <Plus className="w-5 h-5 mr-2" />
+            New Project
+          </Link>
         </div>
         <div className="mb-8">
           <Link

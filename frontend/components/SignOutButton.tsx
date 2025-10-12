@@ -12,11 +12,7 @@ interface SignOutButtonProps {
   size?: "sm" | "md";
 }
 
-export function SignOutButton({
-  className,
-  variant = "ghost",
-  size = "sm",
-}: SignOutButtonProps) {
+export function SignOutButton({ className, variant = "ghost", size = "sm" }: SignOutButtonProps) {
   const router = useRouter();
   const [isSigningOut, setIsSigningOut] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -40,12 +36,10 @@ export function SignOutButton({
     router.refresh();
   };
 
-  const baseStyles = "inline-flex items-center gap-2 rounded-lg font-medium transition focus:outline-none focus:ring-2 focus:ring-offset-2";
+  const baseStyles =
+    "inline-flex items-center gap-2 rounded-lg font-medium transition focus:outline-none focus:ring-2 focus:ring-offset-2";
   const sizeStyles = size === "sm" ? "px-3 py-1.5 text-sm" : "px-4 py-2 text-base";
-  const variantStyles =
-    variant === "solid"
-      ? "bg-slate-900 text-white hover:bg-slate-800 focus:ring-slate-500"
-      : "bg-white/5 text-slate-200 border border-white/10 hover:bg-white/10 focus:ring-slate-300";
+  const variantStyles = variant === "solid" ? "btn-signout-solid" : "btn-signout-ghost";
 
   return (
     <div className={clsx("flex flex-col items-stretch", className)}>
@@ -53,15 +47,19 @@ export function SignOutButton({
         type="button"
         onClick={handleSignOut}
         disabled={isSigningOut}
-        className={clsx(baseStyles, sizeStyles, variantStyles,
-          "disabled:cursor-not-allowed disabled:opacity-60")}
-      >
-        <LogOut className={clsx(size === "sm" ? "h-4 w-4" : "h-5 w-5")}
-        />
+        className={clsx(
+          baseStyles,
+          sizeStyles,
+          variantStyles,
+          "cursor-pointer disabled:opacity-40"
+        )}>
+        <LogOut className={clsx(size === "sm" ? "h-4 w-4" : "h-5 w-5")} />
         <span>{isSigningOut ? "Signing out..." : "Sign out"}</span>
       </button>
       {error && (
-        <span className="mt-1 text-xs text-rose-200" role="alert">
+        <span
+          className="mt-1 text-xs text-rose-200"
+          role="alert">
           {error}
         </span>
       )}

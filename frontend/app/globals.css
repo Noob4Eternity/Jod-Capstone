@@ -3,180 +3,236 @@
 
 @custom-variant dark (&:is(.dark *));
 
+:root {
+  --background: rgb(255, 255, 255);
+  --foreground: rgb(28, 38, 54);
+  --card: rgb(255, 255, 255);
+  --card-foreground: rgb(28, 38, 54);
+  --popover: rgb(255, 255, 255);
+  --popover-foreground: rgb(28, 38, 54);
+  --primary: rgb(28, 92, 156);
+  --primary-foreground: rgb(249, 250, 251);
+  --secondary: rgb(238, 242, 246);
+  --secondary-foreground: rgb(28, 38, 54);
+  --muted: rgb(238, 242, 246);
+  --muted-foreground: rgb(103, 115, 126);
+  --accent: rgb(238, 242, 246);
+  --accent-foreground: rgb(28, 38, 54);
+  --destructive: rgb(239, 68, 68);
+  --destructive-foreground: rgb(249, 250, 251);
+  --border: rgb(224, 230, 235);
+  --input: rgb(224, 230, 235);
+  --ring: rgb(28, 92, 156);
+  --chart-1: rgb(28, 92, 156);
+  --chart-2: rgb(46, 184, 92);
+  --chart-3: rgb(232, 171, 48);
+  --chart-4: rgb(170, 102, 204);
+  --chart-5: rgb(214, 92, 92);
+  --sidebar: rgb(28, 38, 54);
+  --sidebar-foreground: rgb(249, 250, 251);
+  --sidebar-primary: rgb(28, 92, 156);
+  --sidebar-primary-foreground: rgb(249, 250, 251);
+  --sidebar-accent: rgb(238, 242, 246);
+  --sidebar-accent-foreground: rgb(28, 38, 54);
+  --sidebar-border: rgb(224, 230, 235);
+  --sidebar-ring: rgb(28, 92, 156);
+  
+  /* Kanban Board Colors */
+  --kanban-todo: var(--chart-1);
+  --kanban-todo-bg: rgb(239, 246, 255);
+  --kanban-todo-border: rgb(191, 219, 254);
+  --kanban-in-progress: var(--chart-3);
+  --kanban-in-progress-bg: rgb(254, 252, 232);
+  --kanban-in-progress-border: rgb(253, 230, 138);
+  --kanban-review: var(--chart-4);
+  --kanban-review-bg: rgb(250, 245, 255);
+  --kanban-review-border: rgb(233, 213, 255);
+  --kanban-done: var(--chart-2);
+  --kanban-done-bg: rgb(240, 253, 244);
+  --kanban-done-border: rgb(167, 243, 208);
+  --font-sans: "Open Sans", sans-serif;
+  --font-serif: "Georgia", serif;
+  --font-mono: "Roboto Mono", monospace;
+  --radius: 0.375rem;
+  --shadow-x: 0rem;
+  --shadow-y: 0.2rem;
+  --shadow-blur: 0.4rem;
+  --shadow-spread: 0.05rem;
+  --shadow-opacity: 0.08;
+  --shadow-color: 0 0 0;
+  --shadow-2xs: 0rem 0.2rem 0.4rem 0.05rem hsl(0 0 0 / 0.04);
+  --shadow-xs: 0rem 0.2rem 0.4rem 0.05rem hsl(0 0 0 / 0.04);
+  --shadow-sm: 0rem 0.2rem 0.4rem 0.05rem hsl(0 0 0 / 0.08), 0rem 1px 2px -0.95px hsl(0 0 0 / 0.08);
+  --shadow: 0rem 0.2rem 0.4rem 0.05rem hsl(0 0 0 / 0.08), 0rem 1px 2px -0.95px hsl(0 0 0 / 0.08);
+  --shadow-md: 0rem 0.2rem 0.4rem 0.05rem hsl(0 0 0 / 0.08), 0rem 2px 4px -0.95px hsl(0 0 0 / 0.08);
+  --shadow-lg: 0rem 0.2rem 0.4rem 0.05rem hsl(0 0 0 / 0.08), 0rem 4px 6px -0.95px hsl(0 0 0 / 0.08);
+  --shadow-xl: 0rem 0.2rem 0.4rem 0.05rem hsl(0 0 0 / 0.08), 0rem 8px 10px -0.95px hsl(0 0 0 / 0.08);
+  --shadow-2xl: 0rem 0.2rem 0.4rem 0.05rem hsl(0 0 0 / 0.2);
+  --tracking-normal: 0.01em;
+  --spacing: 0.25rem;
+  /* Folder-specific vars for light theme */
+  --folder-paper-base: color-mix(in oklch, var(--foreground) 90%, transparent);
+  --folder-paper-1: color-mix(in oklch, var(--primary) 60%, black 10%);
+  --folder-paper-2: color-mix(in oklch, var(--primary) 75%, black 5%);
+  --folder-paper-3: color-mix(in oklch, var(--primary) 90%, transparent);
+
+  /* Menu-specific vars for light theme */
+  --menu-layer-1: var(--secondary);
+  --menu-layer-2: color-mix(in oklch, var(--secondary) 95%, var(--primary) 5%);
+  --menu-panel-bg: var(--card);
+  --menu-item-text: var(--foreground);
+  --menu-item-hover: var(--primary);
+  --menu-accent: var(--primary);
+  --menu-button-text: var(--foreground);
+  --menu-button-open: var(--primary);
+}
+
+.dark {
+  --background: rgb(24, 24, 27);
+  --foreground: rgb(237, 222, 230);
+  --card: rgb(24, 24, 27);
+  --card-foreground: rgb(237, 222, 230);
+  --popover: rgb(24, 24, 27);
+  --popover-foreground: rgb(237, 222, 230);
+  --primary: rgb(224, 133, 179);
+  --primary-foreground: rgb(24, 24, 27);
+  --secondary: rgb(48, 48, 54);
+  --secondary-foreground: rgb(237, 222, 230);
+  --muted: rgb(48, 48, 54);
+  --muted-foreground: rgb(190, 167, 179);
+  --accent: rgb(84, 69, 77);
+  --accent-foreground: rgb(237, 222, 230);
+  --destructive: rgb(163, 41, 41);
+  --destructive-foreground: rgb(237, 222, 230);
+  --border: rgb(48, 48, 54);
+  --input: rgb(48, 48, 54);
+  --ring: rgb(224, 133, 179);
+  --chart-1: rgb(236, 147, 191);
+  --chart-2: rgb(219, 112, 201);
+  --chart-3: rgb(179, 83, 198);
+  --chart-4: rgb(232, 125, 143);
+  --chart-5: rgb(214, 92, 173);
+  --sidebar: rgb(19, 19, 21);
+  --sidebar-foreground: rgb(237, 222, 230);
+  --sidebar-primary: rgb(224, 133, 179);
+  --sidebar-primary-foreground: rgb(24, 24, 27);
+  --sidebar-accent: rgb(84, 69, 77);
+  --sidebar-accent-foreground: rgb(237, 222, 230);
+  --sidebar-border: rgb(48, 48, 54);
+  --sidebar-ring: rgb(224, 133, 179);
+  
+  /* Kanban Board Colors - Dark */
+  --kanban-todo: var(--chart-1);
+  --kanban-todo-bg: rgb(45, 34, 43);
+  --kanban-todo-border: rgb(84, 69, 77);
+  --kanban-in-progress: var(--chart-3);
+  --kanban-in-progress-bg: rgb(43, 34, 45);
+  --kanban-in-progress-border: rgb(108, 83, 118);
+  --kanban-review: var(--chart-4);
+  --kanban-review-bg: rgb(45, 34, 40);
+  --kanban-review-border: rgb(120, 69, 82);
+  --kanban-done: var(--chart-2);
+  --kanban-done-bg: rgb(40, 34, 43);
+  --kanban-done-border: rgb(112, 69, 103);
+  --font-sans: Lato, sans-serif;
+  --font-serif: Georgia, serif;
+  --font-mono: JetBrains Mono, monospace;
+  --radius: 0.5rem;
+  --shadow-x: 0rem;
+  --shadow-y: 0.4rem;
+  --shadow-blur: 0.8rem;
+  --shadow-spread: 0rem;
+  --shadow-opacity: 0.4;
+  --shadow-color: 0 0% 0%;
+  --shadow-2xs: 0rem 0.4rem 0.8rem 0rem hsl(0 0% 0% / 0.2);
+  --shadow-xs: 0rem 0.4rem 0.8rem 0rem hsl(0 0% 0% / 0.2);
+  --shadow-sm: 0rem 0.4rem 0.8rem 0rem hsl(0 0% 0% / 0.4), 0rem 1px 2px -1px hsl(0 0% 0% / 0.4);
+  --shadow: 0rem 0.4rem 0.8rem 0rem hsl(0 0% 0% / 0.4), 0rem 1px 2px -1px hsl(0 0% 0% / 0.4);
+  --shadow-md: 0rem 0.4rem 0.8rem 0rem hsl(0 0% 0% / 0.4), 0rem 2px 4px -1px hsl(0 0% 0% / 0.4);
+  --shadow-lg: 0rem 0.4rem 0.8rem 0rem hsl(0 0% 0% / 0.4), 0rem 4px 6px -1px hsl(0 0% 0% / 0.4);
+  --shadow-xl: 0rem 0.4rem 0.8rem 0rem hsl(0 0% 0% / 0.4), 0rem 8px 10px -1px hsl(0 0% 0% / 0.4);
+  --shadow-2xl: 0rem 0.4rem 0.8rem 0rem hsl(0 0% 0% / 1);
+  /* Folder-specific vars for dark theme */
+  --folder-paper-base: color-mix(in oklch, var(--primary) 90%, transparent);
+  --folder-paper-1: color-mix(in oklch, var(--foreground) 60%, black 10%);
+  --folder-paper-2: color-mix(in oklch, var(--foreground) 75%, black 5%);
+  --folder-paper-3: var(--foreground);
+
+  /* Menu-specific vars for dark theme */
+  --menu-layer-1: var(--secondary);
+  --menu-layer-2: color-mix(in oklch, var(--secondary) 90%, var(--primary) 10%);
+  --menu-panel-bg: color-mix(in oklch, var(--card) 95%, transparent);
+  --menu-item-text: var(--foreground);
+  --menu-item-hover: var(--primary);
+  --menu-accent: var(--primary);
+  --menu-button-text: var(--foreground);
+  --menu-button-open: var(--primary);
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: Geist, sans-serif;
-  --font-mono: "Fira Code", "Courier New", monospace;
-  --color-sidebar-ring: var(--sidebar-ring);
-  --color-sidebar-border: var(--sidebar-border);
-  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
-  --color-sidebar-accent: var(--sidebar-accent);
-  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
-  --color-sidebar-primary: var(--sidebar-primary);
-  --color-sidebar-foreground: var(--sidebar-foreground);
-  --color-sidebar: var(--sidebar);
-  --color-chart-5: var(--chart-5);
-  --color-chart-4: var(--chart-4);
-  --color-chart-3: var(--chart-3);
-  --color-chart-2: var(--chart-2);
-  --color-chart-1: var(--chart-1);
-  --color-ring: var(--ring);
-  --color-input: var(--input);
-  --color-border: var(--border);
-  --color-destructive: var(--destructive);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-accent: var(--accent);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-muted: var(--muted);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-secondary: var(--secondary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-primary: var(--primary);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-popover: var(--popover);
-  --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --color-kanban-todo: var(--kanban-todo);
+  --color-kanban-todo-bg: var(--kanban-todo-bg);
+  --color-kanban-todo-border: var(--kanban-todo-border);
+  --color-kanban-in-progress: var(--kanban-in-progress);
+  --color-kanban-in-progress-bg: var(--kanban-in-progress-bg);
+  --color-kanban-in-progress-border: var(--kanban-in-progress-border);
+  --color-kanban-review: var(--kanban-review);
+  --color-kanban-review-bg: var(--kanban-review-bg);
+  --color-kanban-review-border: var(--kanban-review-border);
+  --color-kanban-done: var(--kanban-done);
+  --color-kanban-done-bg: var(--kanban-done-bg);
+  --color-kanban-done-border: var(--kanban-done-border);
+
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+  --font-serif: var(--font-serif);
+
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
-  --font-serif: "Lora", Georgia, serif;
-  --radius: 0.5rem;
-  --tracking-tighter: calc(var(--tracking-normal) - 0.05em);
-  --tracking-tight: calc(var(--tracking-normal) - 0.025em);
-  --tracking-wide: calc(var(--tracking-normal) + 0.025em);
-  --tracking-wider: calc(var(--tracking-normal) + 0.05em);
-  --tracking-widest: calc(var(--tracking-normal) + 0.1em);
-  --tracking-normal: var(--tracking-normal);
-  --shadow-2xl: var(--shadow-2xl);
-  --shadow-xl: var(--shadow-xl);
-  --shadow-lg: var(--shadow-lg);
-  --shadow-md: var(--shadow-md);
-  --shadow: var(--shadow);
-  --shadow-sm: var(--shadow-sm);
-  --shadow-xs: var(--shadow-xs);
+
   --shadow-2xs: var(--shadow-2xs);
-  --spacing: var(--spacing);
-  --letter-spacing: var(--letter-spacing);
-  --shadow-offset-y: var(--shadow-offset-y);
-  --shadow-offset-x: var(--shadow-offset-x);
-  --shadow-spread: var(--shadow-spread);
-  --shadow-blur: var(--shadow-blur);
-  --shadow-opacity: var(--shadow-opacity);
-  --color-shadow-color: var(--shadow-color);
-  --color-destructive-foreground: var(--destructive-foreground);
-}
-
-:root {
-  --radius: 0.5rem;
-  --background: oklch(0.9777 0.0041 301.4256);
-  --foreground: oklch(0.3651 0.0325 287.0807);
-  --card: oklch(1.0000 0 0);
-  --card-foreground: oklch(0.3651 0.0325 287.0807);
-  --popover: oklch(1.0000 0 0);
-  --popover-foreground: oklch(0.3651 0.0325 287.0807);
-  --primary: oklch(0.6104 0.0767 299.7335);
-  --primary-foreground: oklch(0.9777 0.0041 301.4256);
-  --secondary: oklch(0.8957 0.0265 300.2416);
-  --secondary-foreground: oklch(0.3651 0.0325 287.0807);
-  --muted: oklch(0.8906 0.0139 299.7754);
-  --muted-foreground: oklch(0.5288 0.0375 290.7895);
-  --accent: oklch(0.7889 0.0802 359.9375);
-  --accent-foreground: oklch(0.3394 0.0441 1.7583);
-  --destructive: oklch(0.6332 0.1578 22.6734);
-  --border: oklch(0.8447 0.0226 300.1421);
-  --input: oklch(0.9329 0.0124 301.2783);
-  --ring: oklch(0.6104 0.0767 299.7335);
-  --chart-1: oklch(0.6104 0.0767 299.7335);
-  --chart-2: oklch(0.7889 0.0802 359.9375);
-  --chart-3: oklch(0.7321 0.0749 169.8670);
-  --chart-4: oklch(0.8540 0.0882 76.8292);
-  --chart-5: oklch(0.7857 0.0645 258.0839);
-  --sidebar: oklch(0.9554 0.0082 301.3541);
-  --sidebar-foreground: oklch(0.3651 0.0325 287.0807);
-  --sidebar-primary: oklch(0.6104 0.0767 299.7335);
-  --sidebar-primary-foreground: oklch(0.9777 0.0041 301.4256);
-  --sidebar-accent: oklch(0.7889 0.0802 359.9375);
-  --sidebar-accent-foreground: oklch(0.3394 0.0441 1.7583);
-  --sidebar-border: oklch(0.8719 0.0198 302.1690);
-  --sidebar-ring: oklch(0.6104 0.0767 299.7335);
-  --destructive-foreground: oklch(0.9777 0.0041 301.4256);
-  --font-sans: Geist, sans-serif;
-  --font-serif: "Lora", Georgia, serif;
-  --font-mono: "Fira Code", "Courier New", monospace;
-  --shadow-color: hsl(0 0% 0%);
-  --shadow-opacity: 0.06;
-  --shadow-blur: 5px;
-  --shadow-spread: 1px;
-  --shadow-offset-x: 1px;
-  --shadow-offset-y: 2px;
-  --letter-spacing: 0em;
-  --spacing: 0.25rem;
-  --shadow-2xs: 1px 2px 5px 1px hsl(0 0% 0% / 0.03);
-  --shadow-xs: 1px 2px 5px 1px hsl(0 0% 0% / 0.03);
-  --shadow-sm: 1px 2px 5px 1px hsl(0 0% 0% / 0.06), 1px 1px 2px 0px hsl(0 0% 0% / 0.06);
-  --shadow: 1px 2px 5px 1px hsl(0 0% 0% / 0.06), 1px 1px 2px 0px hsl(0 0% 0% / 0.06);
-  --shadow-md: 1px 2px 5px 1px hsl(0 0% 0% / 0.06), 1px 2px 4px 0px hsl(0 0% 0% / 0.06);
-  --shadow-lg: 1px 2px 5px 1px hsl(0 0% 0% / 0.06), 1px 4px 6px 0px hsl(0 0% 0% / 0.06);
-  --shadow-xl: 1px 2px 5px 1px hsl(0 0% 0% / 0.06), 1px 8px 10px 0px hsl(0 0% 0% / 0.06);
-  --shadow-2xl: 1px 2px 5px 1px hsl(0 0% 0% / 0.15);
-  --tracking-normal: 0em;
-}
-
-.dark {
-  --background: oklch(0.2166 0.0215 292.8474);
-  --foreground: oklch(0.9053 0.0245 293.5570);
-  --card: oklch(0.2544 0.0301 292.7315);
-  --card-foreground: oklch(0.9053 0.0245 293.5570);
-  --popover: oklch(0.2544 0.0301 292.7315);
-  --popover-foreground: oklch(0.9053 0.0245 293.5570);
-  --primary: oklch(0.7058 0.0777 302.0489);
-  --primary-foreground: oklch(0.2166 0.0215 292.8474);
-  --secondary: oklch(0.4604 0.0472 295.5578);
-  --secondary-foreground: oklch(0.9053 0.0245 293.5570);
-  --muted: oklch(0.2560 0.0320 294.8380);
-  --muted-foreground: oklch(0.6974 0.0282 300.0614);
-  --accent: oklch(0.3181 0.0321 308.6149);
-  --accent-foreground: oklch(0.8391 0.0692 2.6681);
-  --destructive: oklch(0.6875 0.1420 21.4566);
-  --border: oklch(0.3063 0.0359 293.3367);
-  --input: oklch(0.2847 0.0346 291.2726);
-  --ring: oklch(0.7058 0.0777 302.0489);
-  --chart-1: oklch(0.7058 0.0777 302.0489);
-  --chart-2: oklch(0.8391 0.0692 2.6681);
-  --chart-3: oklch(0.7321 0.0749 169.8670);
-  --chart-4: oklch(0.8540 0.0882 76.8292);
-  --chart-5: oklch(0.7857 0.0645 258.0839);
-  --sidebar: oklch(0.1985 0.0200 293.6639);
-  --sidebar-foreground: oklch(0.9053 0.0245 293.5570);
-  --sidebar-primary: oklch(0.7058 0.0777 302.0489);
-  --sidebar-primary-foreground: oklch(0.2166 0.0215 292.8474);
-  --sidebar-accent: oklch(0.3181 0.0321 308.6149);
-  --sidebar-accent-foreground: oklch(0.8391 0.0692 2.6681);
-  --sidebar-border: oklch(0.2847 0.0346 291.2726);
-  --sidebar-ring: oklch(0.7058 0.0777 302.0489);
-  --destructive-foreground: oklch(0.2166 0.0215 292.8474);
-  --radius: 0.5rem;
-  --font-sans: Geist, sans-serif;
-  --font-serif: "Lora", Georgia, serif;
-  --font-mono: "Fira Code", "Courier New", monospace;
-  --shadow-color: hsl(0 0% 0%);
-  --shadow-opacity: 0.06;
-  --shadow-blur: 5px;
-  --shadow-spread: 1px;
-  --shadow-offset-x: 1px;
-  --shadow-offset-y: 2px;
-  --letter-spacing: 0em;
-  --spacing: 0.25rem;
-  --shadow-2xs: 1px 2px 5px 1px hsl(0 0% 0% / 0.03);
-  --shadow-xs: 1px 2px 5px 1px hsl(0 0% 0% / 0.03);
-  --shadow-sm: 1px 2px 5px 1px hsl(0 0% 0% / 0.06), 1px 1px 2px 0px hsl(0 0% 0% / 0.06);
-  --shadow: 1px 2px 5px 1px hsl(0 0% 0% / 0.06), 1px 1px 2px 0px hsl(0 0% 0% / 0.06);
-  --shadow-md: 1px 2px 5px 1px hsl(0 0% 0% / 0.06), 1px 2px 4px 0px hsl(0 0% 0% / 0.06);
-  --shadow-lg: 1px 2px 5px 1px hsl(0 0% 0% / 0.06), 1px 4px 6px 0px hsl(0 0% 0% / 0.06);
-  --shadow-xl: 1px 2px 5px 1px hsl(0 0% 0% / 0.06), 1px 8px 10px 0px hsl(0 0% 0% / 0.06);
-  --shadow-2xl: 1px 2px 5px 1px hsl(0 0% 0% / 0.15);
+  --shadow-xs: var(--shadow-xs);
+  --shadow-sm: var(--shadow-sm);
+  --shadow: var(--shadow);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+  --shadow-xl: var(--shadow-xl);
+  --shadow-2xl: var(--shadow-2xl);
 }
 
 @layer base {
@@ -187,4 +243,117 @@
     @apply bg-background text-foreground;
     letter-spacing: var(--tracking-normal);
   }
+}
+
+/* Sign Out Button Styles */
+.btn-signout-ghost {
+  border: 1px solid hsl(var(--foreground) / 0.15);
+  color: hsl(var(--foreground) / 0.6);
+  background: transparent;
+  transition: all 0.2s ease-in-out;
+}
+
+.btn-signout-ghost:hover {
+  border-color: hsl(var(--foreground) / 0.3);
+  color: hsl(var(--foreground) / 0.8);
+  background: hsl(var(--foreground) / 0.05);
+}
+
+.btn-signout-ghost:focus {
+  outline: 2px solid hsl(var(--ring) / 0.5);
+  outline-offset: 2px;
+}
+
+.btn-signout-solid {
+  background-color: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  border: 1px solid transparent;
+  transition: all 0.2s ease-in-out;
+}
+
+.btn-signout-solid:hover {
+  opacity: 0.9;
+}
+
+  .btn-signout-solid:focus {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
+/* Kanban Column Styles */
+/* To Do Column */
+.bg-kanban-todo {
+  background-color: var(--kanban-todo);
+}
+.bg-kanban-todo-bg {
+  background-color: var(--kanban-todo-bg);
+}
+.border-kanban-todo-border {
+  border-color: var(--kanban-todo-border);
+}
+.text-kanban-todo {
+  color: var(--kanban-todo);
+}
+
+/* In Progress Column */
+.bg-kanban-in-progress {
+  background-color: var(--kanban-in-progress);
+}
+.bg-kanban-in-progress-bg {
+  background-color: var(--kanban-in-progress-bg);
+}
+.border-kanban-in-progress-border {
+  border-color: var(--kanban-in-progress-border);
+}
+.text-kanban-in-progress {
+  color: var(--kanban-in-progress);
+}
+
+/* In Review Column */
+.bg-kanban-review {
+  background-color: var(--kanban-review);
+}
+.bg-kanban-review-bg {
+  background-color: var(--kanban-review-bg);
+}
+.border-kanban-review-border {
+  border-color: var(--kanban-review-border);
+}
+.text-kanban-review {
+  color: var(--kanban-review);
+}
+
+/* Done Column */
+.bg-kanban-done {
+  background-color: var(--kanban-done);
+}
+.bg-kanban-done-bg {
+  background-color: var(--kanban-done-bg);
+}
+.border-kanban-done-border {
+  border-color: var(--kanban-done-border);
+}
+.text-kanban-done {
+  color: var(--kanban-done);
+}
+
+/* Kanban Card Animations */
+.drag-handle {
+  transition: opacity 0.2s ease-in-out, background-color 0.2s ease-in-out;
+}
+
+/* Modal Animations */
+@keyframes modalFadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.modal-content {
+  animation: modalFadeIn 0.2s ease-out;
 }

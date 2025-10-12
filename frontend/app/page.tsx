@@ -20,7 +20,7 @@ export default function Home() {
   ];
 
   return (
-    <div className="min-h-screen px-4 sm:px-6 lg:px-8 bg-primary-foreground">
+    <div className="min-h-screen px-4 sm:px-6 lg:px-8 bg-muted/90">
       <ThemeToggleButton2 className="fixed bottom-5 left-5 h-8 w-8 text-primary bg-transparent z-50 cursor-pointer" />
 
       <Navbar />
@@ -68,8 +68,10 @@ export default function Home() {
       <div className="flex items-center justify-center mt-2 sm:mt-4 md:mt-6 px-6">
         <p className="italic text-secondary--foreground text-center text-base sm:text-lg md:text-xl lg:text-2xl max-w-3xl leading-relaxed">
           <Highlighter
+            opacity={0.2}
             padding={3}
-            color="var(--accent)">
+            animationDuration={1200}
+            color="var(--primary)">
             Tell Your Story.
           </Highlighter>{" "}
           Let Our System Manage the Rest.
