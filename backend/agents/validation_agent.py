@@ -191,6 +191,16 @@ Validate the generated stories against ALL original sources. Return ONLY a JSON 
             state["story_issues"] = semantic_validation.get("story_issues", {})
             state["current_phase"] = next_phase if validation_status == ValidationStatus.APPROVED.value else "story_generation"
 
+            # Track validation history for feedback loop analysis
+            if "validation_history" not in state:
+                state["validation_history"] = []
+            state["validation_history"].append({
+                "iteration": state.get("iteration_count", 0),
+                "score": validation_score,
+                "status": validation_status,
+                "timestamp": datetime.now().isoformat()
+            })
+
             if validation_status != ValidationStatus.APPROVED.value:
                 state["iteration_count"] = state.get("iteration_count", 0) + 1
 

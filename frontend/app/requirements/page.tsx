@@ -29,6 +29,16 @@ export default function Agents() {
     setError("");
     setResponse(null);
 
+    // Client-side validation
+    const hasText = requirements && requirements.trim();
+    const hasFile = file !== null;
+
+    if (!hasText && !hasFile) {
+      setError("Please provide either requirements text or upload a PDF file.");
+      setIsLoading(false);
+      return;
+    }
+
     const projectContext: any = {};
     if (projectTitle) projectContext.title = projectTitle;
     if (industry) projectContext.industry = industry;
@@ -52,7 +62,10 @@ export default function Agents() {
         body: formData,
       });
 
-      if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`HTTP error! status: ${res.status} - ${errorText}`);
+      }
 
       const data = await res.json();
 
@@ -115,7 +128,6 @@ export default function Agents() {
                   placeholder="Describe your requirements..."
                   rows={4}
                   className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                  required={!file}
                 />
               </div>
 
@@ -123,16 +135,15 @@ export default function Agents() {
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-foreground mb-2">
-                    Upload Documentation (PDF)
+                    Upload Documentation (PDF or DOCX)
                   </label>
                   <input
                     type="file"
-                    accept=".pdf"
+                    accept=".pdf,.docx"
                     onChange={(e) => setFile(e.target.files?.[0] || null)}
                     className="w-full text-sm text-muted-foreground file:mr-4 file:py-2 file:px-4 
                                file:rounded-md file:border-0 file:bg-primary file:text-primary-foreground 
                                hover:file:bg-primary/80 cursor-pointer"
-                    required={!requirements}
                   />
                 </div>
 

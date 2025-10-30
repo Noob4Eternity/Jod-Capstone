@@ -65,8 +65,8 @@ def create_story_workflow(gemini_api_key: str = None, max_iterations: int = 3) -
         
         print(f"[WORKFLOW] Iteration {iteration_count}, Status: {validation_status}, Score: {validation_score:.1f}")
         
-        # Check if approved or good enough
-        if validation_status == ValidationStatus.APPROVED.value or validation_score >= 85:
+        # Check if approved - align with validation agent thresholds (80+ is approved)
+        if validation_status == ValidationStatus.APPROVED.value or validation_score >= 80:
             return "approved"
         
         # If we've reached max iterations but have decent stories, proceed
@@ -78,9 +78,19 @@ def create_story_workflow(gemini_api_key: str = None, max_iterations: int = 3) -
                 print(f"[WORKFLOW] Max iterations reached, escalating to human review")
                 return "max_iterations"
         
-        # Continue with revision if possible
-        if validation_score >= 30:
+        # Check for degrading quality (score dropped significantly from previous iteration)
+        previous_score = state.get("previous_validation_score", validation_score)
+        if iteration_count > 0 and validation_score < previous_score - 10:
+            print(f"[WORKFLOW] Score degraded from {previous_score:.1f} to {validation_score:.1f}, stopping iterations")
+            if validation_score >= 60:
+                return "approved"
+            else:
+                return "max_iterations"
+        
+        # Continue with revision if score suggests improvement possible
+        if validation_score >= 50:
             print(f"[WORKFLOW] Score {validation_score:.1f} suggests improvement possible, iterating...")
+            state["previous_validation_score"] = validation_score  # Track for next iteration
             return "needs_revision"
         else:
             print(f"[WORKFLOW] Low score {validation_score:.1f}, escalating to human review")

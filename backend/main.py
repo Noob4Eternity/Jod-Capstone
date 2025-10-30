@@ -132,7 +132,7 @@ async def generate_unified(
     requirements: Optional[str] = Form(None, description="Text requirements (optional if PDF provided)"),
     
     # Optional PDF files (can upload multiple)
-    files: List[UploadFile] = File(default=[], description="PDF files containing requirements (optional if text provided)"),
+    files: List[UploadFile] = File(default=[], description="PDF/DOCX files containing requirements (optional if text provided)"),
     
     # Optional metadata
     project_id: Optional[str] = Form(default=None, description="Project identifier"),
@@ -140,12 +140,12 @@ async def generate_unified(
     project_context: Optional[str] = Form(default=None, description="Project context as JSON string"),
 ):
     """
-    Unified endpoint for generating user stories and tasks from text and/or PDF files.
+    Unified endpoint for generating user stories and tasks from text and/or PDF/DOCX files.
     
     Supports multiple input combinations:
     - Text only
-    - PDF only (single file)
-    - Text + PDF (multimodal - recommended)
+    - PDF/DOCX only (single file)
+    - Text + PDF/DOCX (multimodal - recommended)
     
     Returns both user stories AND development tasks.
     """
@@ -165,21 +165,22 @@ async def generate_unified(
     # Validate PDF files and get first one (for now, support single PDF)
     document_path = None
     if has_pdfs:
-        pdf_file = files[0]  # Use first PDF
-        if not pdf_file.filename.lower().endswith('.pdf'):
+        pdf_file = files[0]  # Use first file
+        file_extension = pdf_file.filename.lower().split('.')[-1]
+        if file_extension not in ['pdf', 'docx']:
             raise HTTPException(
                 status_code=400,
-                detail=f"File '{pdf_file.filename}' is not a PDF. Only PDF files are supported."
+                detail=f"File '{pdf_file.filename}' is not supported. Only PDF and DOCX files are supported."
             )
         
-        # Save PDF to temporary file
+        # Save file to temporary location with correct extension
         try:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+            with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_extension}") as tmp:
                 content = await pdf_file.read()
                 tmp.write(content)
                 document_path = tmp.name
         except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to process PDF: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Failed to process {file_extension.upper()} file: {str(e)}")
     
     # Parse project context
     ctx = None
@@ -222,7 +223,8 @@ async def generate_unified(
             "text_provided": has_text,
             "pdf_provided": has_pdfs,
             "pdf_filename": files[0].filename if has_pdfs else None,
-            "multimodal": has_text and has_pdfs
+            "multimodal": has_text and has_pdfs,
+            "supported_formats": ["pdf", "docx"]
         }
         
         # If Supabase storage was successful, use the Supabase UUID as the project_id
@@ -277,17 +279,18 @@ async def generate_from_pdf(
     max_iterations: int = Form(3),
     project_context: Optional[str] = Form(None)
 ):
-    """Legacy endpoint for PDF-only generation (backward compatibility)."""
+    """Legacy endpoint for PDF/DOCX-only generation (backward compatibility)."""
     if not GEMINI_API_KEY:
         raise HTTPException(status_code=500, detail="GEMINI_API_KEY not configured")
 
-    if not file.filename.lower().endswith('.pdf'):
-        raise HTTPException(status_code=400, detail="Only PDF uploads are supported")
+    file_extension = file.filename.lower().split('.')[-1]
+    if file_extension not in ['pdf', 'docx']:
+        raise HTTPException(status_code=400, detail="Only PDF and DOCX file uploads are supported")
 
     document_path = None
     try:
-        # Save PDF to temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp:
+        # Save file to temporary location with correct extension
+        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{file_extension}") as tmp:
             content = await file.read()
             tmp.write(content)
             document_path = tmp.name
@@ -344,14 +347,14 @@ async def root():
         "message": "User Story Generation API with Multimodal Support",
         "version": "0.2.0",
         "endpoints": {
-            "unified": "/generate (supports text + PDF in single request)",
+            "unified": "/generate (supports text + PDF/DOCX in single request)",
             "text_only": "/generate/text (legacy)",
-            "pdf_only": "/generate/pdf (legacy)",
+            "pdf_docx_only": "/generate/pdf (legacy - supports PDF and DOCX)",
             "save_to_supabase": "/save-to-supabase (manual Supabase storage)",
             "health": "/health"
         },
         "features": [
-            "Multimodal input processing (text + PDF)",
+            "Multimodal input processing (text + PDF/DOCX)",
             "User story generation with validation",
             "Development task generation",
             "Automatic Supabase storage integration",

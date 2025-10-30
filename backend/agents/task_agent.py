@@ -41,8 +41,9 @@ For each story, generate 3-5 tasks:
 - Testing task (unit/integration tests)
 - Optional: DevOps or documentation task
 
-Each task: 4-16 hours, atomic, includes story_id.
-Each task must include a concise, one-sentence description explaining its purpose.
+Each task must include:
+- story_id, title, description, category, estimated_hours, dependencies
+- 2-4 specific acceptance criteria defining when the task is complete
 
 Return JSON array: [{{
   "story_id": "US001",
@@ -50,7 +51,12 @@ Return JSON array: [{{
   "description": "Create REST API endpoints for user registration, login, and logout.",
   "category": "backend|frontend|testing|devops",
   "estimated_hours": 8,
-  "dependencies": []
+  "dependencies": [],
+  "acceptance_criteria": [
+    "API endpoint returns correct JSON response",
+    "Endpoint handles error cases appropriately",
+    "Unit tests pass with 90% coverage"
+  ]
 }}]"""
             ),
             (
@@ -60,7 +66,7 @@ Return JSON array: [{{
 
 Tech: {tech_stack}
 
-Generate 3-5 tasks per story. Include a unique title and a concise description for each task. Return JSON array only."""
+Generate 3-5 tasks per story. Include a unique title, concise description, and 2-4 specific acceptance criteria for each task. Return JSON array only."""
             ),
         ])
         
@@ -160,7 +166,12 @@ Generate 3-5 tasks per story. Include a unique title and a concise description f
                 "estimated_hours": 12,
                 "priority": story.get("priority", "medium"),
                 "dependencies": [],
-                "acceptance_criteria": story.get("acceptance_criteria", [])[:2],
+                "acceptance_criteria": [
+                    "Backend logic implements the required functionality",
+                    "API endpoints return correct responses",
+                    "Error handling is implemented",
+                    "Code follows project standards"
+                ],
                 "technical_notes": story.get("technical_notes", "")
             },
             {
@@ -172,7 +183,12 @@ Generate 3-5 tasks per story. Include a unique title and a concise description f
                 "estimated_hours": 10,
                 "priority": story.get("priority", "medium"),
                 "dependencies": [f"T{task_counter + 1:03d}"],
-                "acceptance_criteria": story.get("acceptance_criteria", [])[2:4] if len(story.get("acceptance_criteria", [])) > 2 else ["UI displays correctly", "User interactions work as expected"],
+                "acceptance_criteria": [
+                    "UI components render correctly",
+                    "User interactions work as expected",
+                    "Design matches requirements",
+                    "Responsive design implemented"
+                ],
                 "technical_notes": "Ensure responsive design and accessibility"
             },
             {
@@ -184,7 +200,12 @@ Generate 3-5 tasks per story. Include a unique title and a concise description f
                 "estimated_hours": 6,
                 "priority": "medium",
                 "dependencies": [f"T{task_counter + 1:03d}", f"T{task_counter + 2:03d}"],
-                "acceptance_criteria": ["Unit tests pass", "Integration tests pass", "Code coverage > 80%"],
+                "acceptance_criteria": [
+                    "Unit tests pass with >80% coverage",
+                    "Integration tests pass",
+                    "Edge cases are covered",
+                    "Tests are automated and runnable"
+                ],
                 "technical_notes": "Include both unit and integration tests"
             }
         ]

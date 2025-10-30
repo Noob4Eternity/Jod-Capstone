@@ -345,46 +345,67 @@ All fields must be arrays of strings. No nested objects or complex data structur
     def _format_multimodal_feedback(self, state: ProjectManagementState) -> tuple:
         """
         Format validation feedback specifically for multimodal iteration improvements.
+        Provides specific, actionable feedback to prevent over-correction.
         """
         iteration_count = state.get("iteration_count", 0)
         
         if iteration_count == 0:
             return "", "", ""
         
-        feedback_section = "\n=== MULTIMODAL VALIDATION FEEDBACK ===\n"
-        iteration_instructions = "\n6. **CRITICAL**: Address multimodal feedback and improve source integration"
-        feedback_focus = "\n6. **Improve multimodal processing and source coverage**"
+        feedback_section = "\n=== ITERATION FEEDBACK - IMPROVE SPECIFIC ISSUES ===\n"
+        iteration_instructions = "\n**CRITICAL**: Address ONLY the specific issues listed below. Do not change working stories unnecessarily."
+        feedback_focus = "\n**Focus on fixing these exact problems, not general improvements**"
         
         detailed_feedback = state.get("detailed_feedback", {})
+        validation_score = state.get("validation_score", 0)
         
         if detailed_feedback:
-            feedback_section += f"**Validation Score**: {state.get('validation_score', 0):.1f}/100\n\n"
+            feedback_section += f"**Current Validation Score**: {validation_score:.1f}/100\n\n"
             
-            # Source coverage issues
-            if detailed_feedback.get("missing_requirements"):
-                feedback_section += "**MISSING REQUIREMENTS (check all sources)**:\n"
-                for req in detailed_feedback["missing_requirements"]:
-                    feedback_section += f"- {req}\n"
+            # Specific missing requirements with priority
+            missing_reqs = detailed_feedback.get("missing_requirements", [])
+            if missing_reqs:
+                feedback_section += "**MISSING REQUIREMENTS - ADD THESE SPECIFIC FEATURES**:\n"
+                for i, req in enumerate(missing_reqs[:5], 1):  # Limit to top 5
+                    feedback_section += f"{i}. {req}\n"
                 feedback_section += "\n"
             
-            # Multimodal integration feedback
-            if detailed_feedback.get("recommendations"):
-                feedback_section += "**MULTIMODAL INTEGRATION IMPROVEMENTS**:\n"
-                for rec in detailed_feedback["recommendations"]:
-                    feedback_section += f"- {rec}\n"
+            # Story-specific issues
+            story_issues = detailed_feedback.get("story_issues", {})
+            if story_issues:
+                feedback_section += "**STORY-SPECIFIC FIXES REQUIRED**:\n"
+                for story_id, issues in list(story_issues.items())[:3]:  # Top 3 stories with issues
+                    if issues:
+                        feedback_section += f"• **{story_id}**: {issues[0] if issues else 'General improvement needed'}\n"
                 feedback_section += "\n"
             
-            # Critical issues
-            if detailed_feedback.get("critical_issues"):
-                feedback_section += "**CRITICAL ISSUES TO FIX**:\n"
-                for issue in detailed_feedback["critical_issues"]:
-                    feedback_section += f"- {issue}\n"
+            # Critical issues that must be fixed
+            critical_issues = detailed_feedback.get("critical_issues", [])
+            if critical_issues:
+                feedback_section += "**CRITICAL ISSUES - FIX IMMEDIATELY**:\n"
+                for issue in critical_issues[:3]:
+                    feedback_section += f"• {issue}\n"
+                feedback_section += "\n"
+            
+            # Specific recommendations
+            recommendations = detailed_feedback.get("recommendations", [])
+            if recommendations:
+                feedback_section += "**SPECIFIC IMPROVEMENTS NEEDED**:\n"
+                for rec in recommendations[:3]:
+                    feedback_section += f"• {rec}\n"
                 feedback_section += "\n"
         
-        # Previous iteration reference
+        # Check for score degradation
+        validation_history = state.get("validation_history", [])
+        if len(validation_history) > 1:
+            previous_score = validation_history[-2].get("score", 0)
+            if validation_score < previous_score - 10:
+                feedback_section += f"**WARNING**: Score dropped from {previous_score:.1f} to {validation_score:.1f}. Be more conservative with changes.\n\n"
+        
+        # Previous iteration context
         previous_stories = state.get("previous_user_stories", [])
         if previous_stories:
-            feedback_section += f"**PREVIOUS ITERATION**: {len(previous_stories)} stories generated - improve based on feedback\n"
+            feedback_section += f"**PREVIOUS ITERATION**: {len(previous_stories)} stories - fix only the identified issues\n"
         
         return feedback_section, iteration_instructions, feedback_focus
     

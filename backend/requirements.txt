@@ -8,5 +8,5 @@ fastapi
 uvicorn
 python-multipart
 pypdf2
-docx
+python-docx
 supabase
