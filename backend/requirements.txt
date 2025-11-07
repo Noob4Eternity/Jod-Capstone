@@ -10,3 +10,5 @@ python-multipart
 pypdf2
 python-docx
 supabase
+pygithub
+cryptography

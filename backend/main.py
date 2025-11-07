@@ -8,7 +8,7 @@ Endpoints:
 Implementation uses the updated multimodal workflow for consistent processing.
 """
 import os
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Body
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Body, Request, BackgroundTasks
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -17,6 +17,11 @@ import tempfile
 from datetime import datetime
 import uvicorn
 import json
+import hmac
+import hashlib
+from github import Github, GithubIntegration
+from supabase import create_client, Client
+from agents.qc_agent import QCAgent
 
 # Load environment variables
 from dotenv import load_dotenv
@@ -364,7 +369,295 @@ async def root():
         "docs": "/docs"
     }
 
-# ------------- SUPABASE STORAGE ENDPOINT -------------
+# ------------- GITHUB WEBHOOK ENDPOINT -------------
+
+def verify_github_signature(payload: bytes, signature: str, secret: str) -> bool:
+    """Verify GitHub webhook signature for security."""
+    if not signature:
+        return False
+
+    # GitHub sends signature as "sha256=<hash>"
+    if not signature.startswith("sha256="):
+        return False
+
+    expected_signature = signature.split("=", 1)[1]
+    computed_signature = hmac.new(
+        secret.encode(),
+        payload,
+        hashlib.sha256
+    ).hexdigest()
+
+    return hmac.compare_digest(expected_signature, computed_signature)
+
+def get_github_client():
+    """Initialize GitHub client supporting both PAT and GitHub App authentication."""
+    # Try GitHub App first (preferred for production)
+    app_id = os.getenv("GITHUB_APP_ID")
+    private_key_path = os.getenv("GITHUB_PRIVATE_KEY_PATH")
+    installation_id = os.getenv("GITHUB_INSTALLATION_ID")
+
+    if app_id and private_key_path and installation_id and os.path.exists(private_key_path):
+        try:
+            with open(private_key_path, 'r') as key_file:
+                private_key = key_file.read()
+
+            integration = GithubIntegration(app_id, private_key)
+            # Get access token for the specific installation
+            access_token = integration.get_access_token(installation_id).token
+            print("[GITHUB] Using GitHub App authentication")
+            return Github(access_token)
+        except Exception as e:
+            print(f"[GITHUB] GitHub App setup failed: {e}")
+            print("[GITHUB] Falling back to Personal Access Token")
+
+    # Fall back to Personal Access Token
+    token = os.getenv("GITHUB_TOKEN")
+    if token and token != "your_github_personal_access_token":  # Check it's not placeholder
+        print("[GITHUB] Using Personal Access Token authentication")
+        return Github(token)
+    else:
+        raise ValueError("No valid GitHub authentication configured. Set GITHUB_TOKEN or GITHUB_APP_ID+GITHUB_PRIVATE_KEY_PATH+GITHUB_INSTALLATION_ID")
+
+def extract_task_id_from_pr(pr_title: str, branch_name: str) -> Optional[str]:
+    """Extract task ID (e.g., 'T001') from PR title or branch name."""
+    import re
+
+    # Look for patterns like T001, TASK-001, etc.
+    patterns = [
+        r'\bT\d{3}\b',  # T001
+        r'\bTASK-\d{3}\b',  # TASK-001
+        r'\btask-\d{3}\b',  # task-001
+        r'\b\d{3}\b'  # Just 001 (fallback)
+    ]
+
+    # Check PR title first
+    for pattern in patterns:
+        match = re.search(pattern, pr_title, re.IGNORECASE)
+        if match:
+            return match.group().upper().replace('TASK-', 'T')
+
+    # Check branch name
+    for pattern in patterns:
+        match = re.search(pattern, branch_name, re.IGNORECASE)
+        if match:
+            return match.group().upper().replace('TASK-', 'T')
+
+    return None
+
+async def process_github_webhook_background(
+    payload: Dict[str, Any],
+    supabase_url: str,
+    supabase_key: str,
+    gemini_api_key: str
+):
+    """Background task to process GitHub webhook and run QC analysis."""
+    try:
+        print("[WEBHOOK] Starting background processing...")
+
+        # Extract PR information
+        pr_data = payload.get("pull_request", {})
+        if not pr_data:
+            print("[WEBHOOK] No pull_request data in payload")
+            return
+
+        pr_number = pr_data.get("number")
+        pr_title = pr_data.get("title", "")
+        branch_name = pr_data.get("head", {}).get("ref", "")
+        repo_full_name = payload.get("repository", {}).get("full_name")
+
+        if not all([pr_number, repo_full_name]):
+            print("[WEBHOOK] Missing PR number or repo name")
+            return
+
+        print(f"[WEBHOOK] Processing PR #{pr_number} in {repo_full_name}")
+        
+        # Initialize Supabase client early
+        supabase_client: Client = create_client(supabase_url, supabase_key)
+        
+        # Optional: Validate repository is associated with a project
+        # This provides an additional security layer
+        project_with_repo = supabase_client.table("projects").select("id", "name").eq("github_repo_full_name", repo_full_name).execute()
+        if project_with_repo.data:
+            project_info = project_with_repo.data[0]
+            print(f"[WEBHOOK] ✓ Repository linked to project: {project_info['name']} ({project_info['id']})")
+        else:
+            print(f"[WEBHOOK] ⚠️  Repository {repo_full_name} not explicitly linked to any project")
+            # Still process the webhook, but log the warning
+        print(f"[WEBHOOK] Title: {pr_title}")
+        print(f"[WEBHOOK] Branch: {branch_name}")
+
+        # Extract task ID
+        task_id = extract_task_id_from_pr(pr_title, branch_name)
+        if not task_id:
+            print(f"[WEBHOOK] Could not extract task ID from title '{pr_title}' or branch '{branch_name}'")
+            return
+
+        print(f"[WEBHOOK] Extracted task ID: {task_id}")
+
+        # Initialize GitHub client
+        github_client = get_github_client()
+
+        # Get repository and PR
+        repo = github_client.get_repo(repo_full_name)
+        pr = repo.get_pull(pr_number)
+
+        # Get code diff
+        diff = pr.get_files()
+        code_diff = ""
+        for file in diff:
+            if file.patch:
+                code_diff += f"File: {file.filename}\n"
+                code_diff += f"Status: {file.status}\n"
+                code_diff += f"Changes: +{file.additions} -{file.deletions}\n"
+                code_diff += f"Patch:\n{file.patch}\n\n"
+
+        if not code_diff.strip():
+            print("[WEBHOOK] No code changes found in PR")
+            return
+
+        print(f"[WEBHOOK] Retrieved code diff ({len(code_diff)} chars)")
+
+        # Query database for task and story details
+        task_query = supabase_client.table("tasks").select("*").eq("task_id", task_id).execute()
+        if not task_query.data:
+            print(f"[WEBHOOK] Task {task_id} not found in database")
+            return
+
+        task_details = task_query.data[0]
+        story_id = task_details.get("story_id")
+
+        if not story_id:
+            print(f"[WEBHOOK] No story_id found for task {task_id}")
+            return
+
+        story_query = supabase_client.table("user_stories").select("*").eq("id", story_id).execute()
+        if not story_query.data:
+            print(f"[WEBHOOK] Story {story_id} not found in database")
+            return
+
+        story_details = story_query.data[0]
+
+        print(f"[WEBHOOK] Found task: {task_details.get('title')}")
+        print(f"[WEBHOOK] Found story: {story_details.get('title')}")
+
+        # Run QC analysis
+        qc_agent = QCAgent(gemini_api_key)
+        review_result = qc_agent.analyze_submission(task_details, story_details, code_diff)
+
+        print(f"[WEBHOOK] QC Analysis complete - Score: {review_result.get('qc_score')}, Status: {review_result.get('status')}")
+
+        # Create task submission record
+        submission_data = {
+            "task_id": task_details["id"],
+            "github_pr_url": pr_data.get("html_url"),
+            "code_snippet": code_diff[:5000],  # Truncate if too long
+            "notes": f"Auto-submitted from GitHub PR #{pr_number}"
+        }
+
+        submission_result = supabase_client.table("task_submissions").insert(submission_data).execute()
+        submission_id = submission_result.data[0]["id"]
+
+        # Save review to database
+        review_data = {
+            "submission_id": submission_id,
+            "review_type": "AI",
+            "status": review_result.get("status"),
+            "qc_score": review_result.get("qc_score"),
+            "detailed_feedback": review_result.get("detailed_feedback")
+        }
+
+        supabase_client.table("submission_reviews").insert(review_data).execute()
+
+        # Create PR comment with results
+        comment_body = f"""## 🔍 AI Quality Control Review
+
+**Task:** {task_details.get('title')} ({task_id})
+**Status:** {review_result.get('status')}
+**QC Score:** {review_result.get('qc_score'):.1f}/100
+
+### 📋 Acceptance Criteria Analysis
+"""
+
+        criteria_analysis = review_result.get("detailed_feedback", {}).get("criteria_analysis", [])
+        for i, criterion in enumerate(criteria_analysis, 1):
+            status_icon = "✅" if criterion.get("met") else "❌"
+            comment_body += f"{i}. {status_icon} **{criterion.get('criterion')}**\n"
+            comment_body += f"   {criterion.get('reasoning')}\n\n"
+
+        comment_body += f"""### 💻 Code Quality Review
+{review_result.get('detailed_feedback', {}).get('quality_review', 'No review provided')}
+
+### 🔒 Security Review
+{review_result.get('detailed_feedback', {}).get('security_review', 'No review provided')}
+
+---
+*This review was automatically generated by the AI QC Agent*
+"""
+
+        pr.create_issue_comment(comment_body)
+
+        print("[WEBHOOK] Successfully posted review comment to PR")
+
+    except Exception as e:
+        print(f"[WEBHOOK] Error in background processing: {str(e)}")
+        import traceback
+        traceback.print_exc()
+
+@app.post("/api/github-webhook")
+async def github_webhook(
+    request: Request,
+    background_tasks: BackgroundTasks
+):
+    """
+    GitHub webhook endpoint for automated QC analysis of pull requests.
+
+    Expects GitHub webhook payload with pull_request event.
+    Verifies webhook signature and processes in background.
+    """
+    try:
+        # Get raw request body for signature verification
+        body = await request.body()
+
+        # Verify webhook signature
+        signature = request.headers.get("X-Hub-Signature-256")
+        webhook_secret = os.getenv("GITHUB_WEBHOOK_SECRET")
+
+        if not webhook_secret:
+            raise HTTPException(status_code=500, detail="GITHUB_WEBHOOK_SECRET not configured")
+
+        if not verify_github_signature(body, signature, webhook_secret):
+            raise HTTPException(status_code=401, detail="Invalid webhook signature")
+
+        # Parse JSON payload
+        payload = json.loads(body.decode())
+
+        # Check if this is a pull request event
+        if payload.get("action") not in ["opened", "synchronize", "reopened"]:
+            return {"status": "ignored", "reason": f"Action '{payload.get('action')}' not processed"}
+
+        # Get required environment variables
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_KEY")
+
+        if not all([supabase_url, supabase_key]):
+            raise HTTPException(status_code=500, detail="Missing required environment variables: SUPABASE_URL, SUPABASE_KEY")
+
+        # Add background task
+        background_tasks.add_task(
+            process_github_webhook_background,
+            payload,
+            supabase_url,
+            supabase_key,
+            GEMINI_API_KEY
+        )
+
+        return {"status": "accepted", "message": "Webhook processed successfully"}
+
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+    except Exception as e:
+        print(f"[WEBHOOK] Error processing webhook: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Webhook processing failed: {str(e)}")
 
 @app.post("/save-to-supabase")
 async def save_to_supabase_endpoint(

@@ -20,6 +20,8 @@ export default function Agents() {
   const [timeline, setTimeline] = useState("");
   const [priority, setPriority] = useState("");
   const [techStack, setTechStack] = useState("");
+  const [githubRepo, setGithubRepo] = useState("");
+  const [githubRepoUrl, setGithubRepoUrl] = useState("");
 
   const router = useRouter();
 
@@ -47,6 +49,8 @@ export default function Agents() {
     if (timeline) projectContext.timeline = timeline;
     if (priority) projectContext.priority = priority;
     if (techStack) projectContext.tech_stack = techStack.split(",").map((s: string) => s.trim());
+    if (githubRepo) projectContext.github_repo_full_name = githubRepo;
+    if (githubRepoUrl) projectContext.github_repo_url = githubRepoUrl;
 
     const formData = new FormData();
     if (requirements) formData.append("requirements", requirements);
@@ -217,6 +221,22 @@ export default function Agents() {
                     value={techStack}
                     onChange={(e) => setTechStack(e.target.value)}
                     placeholder="Tech Stack (comma separated)"
+                    className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                  {/* GitHub Repository */}
+                  <input
+                    type="text"
+                    value={githubRepo}
+                    onChange={(e) => setGithubRepo(e.target.value)}
+                    placeholder="GitHub Repo (owner/repo)"
+                    className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                  {/* GitHub Repository URL */}
+                  <input
+                    type="url"
+                    value={githubRepoUrl}
+                    onChange={(e) => setGithubRepoUrl(e.target.value)}
+                    placeholder="GitHub URL (optional)"
                     className="w-full px-3 py-2 border border-border rounded-md bg-background text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary"
                   />
                 </div>

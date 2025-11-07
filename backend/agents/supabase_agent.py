@@ -60,6 +60,13 @@ class SupabaseWorkflowAgent:
                 "status": state.get("validation_status")
             }
 
+            # Add GitHub repository information if provided
+            if state.get("project_context"):
+                if state["project_context"].get("github_repo_full_name"):
+                    project_data["github_repo_full_name"] = state["project_context"]["github_repo_full_name"]
+                if state["project_context"].get("github_repo_url"):
+                    project_data["github_repo_url"] = state["project_context"]["github_repo_url"]
+
             # Only add optional fields if they exist in schema
             if state.get("project_context"):
                 try:
@@ -169,6 +176,13 @@ class SupabaseWorkflowAgent:
                 "status": data.get("status"),
                 "source_info": data.get("source_info")
             }
+            
+            # Add GitHub repository information if provided
+            if data.get("project_context"):
+                if data["project_context"].get("github_repo_full_name"):
+                    project_data["github_repo_full_name"] = data["project_context"]["github_repo_full_name"]
+                if data["project_context"].get("github_repo_url"):
+                    project_data["github_repo_url"] = data["project_context"]["github_repo_url"]
             
             # Clean up None values
             project_data = {k: v for k, v in project_data.items() if v is not None}

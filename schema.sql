@@ -26,6 +26,8 @@ CREATE TABLE public.projects (
   iterations integer,
   status text,
   source_info jsonb,
+  github_repo_full_name text,  -- NEW: GitHub repository (e.g., "owner/repo")
+  github_repo_url text,       -- NEW: Full GitHub URL
   created_at timestamp with time zone DEFAULT now(),
   CONSTRAINT projects_pkey PRIMARY KEY (id),
   CONSTRAINT projects_created_by_id_fkey FOREIGN KEY (created_by_id) REFERENCES public.employees(id),
