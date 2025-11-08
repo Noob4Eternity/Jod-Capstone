@@ -543,6 +543,30 @@ All fields must be arrays of strings. No nested objects or complex data structur
                 "stories_with_document_coverage": sum(1 for s in validated_stories if s.get("source_traceability", {}).get("document_coverage", False))
             }
             
+            # IMPORTANT: Enrich project_context with requirements for task generation
+            if "project_context" not in state:
+                state["project_context"] = {}
+            
+            # Create a concise project description from requirements for task generation
+            project_description = primary_requirements[:2000] if primary_requirements else ""
+            if document_content and len(project_description) < 1500:
+                # Add document content if we have room
+                project_description += f"\n\n{document_content[:500]}"
+            
+            state["project_context"]["project_description"] = project_description
+            state["project_context"]["requirements_summary"] = {
+                "primary_requirements": primary_requirements[:1000],  # Store truncated for reference
+                "has_document": bool(document_content),
+                "document_preview": document_content[:500] if document_content else ""
+            }
+            
+            # Store extracted features and constraints for task generation
+            state["project_context"]["technical_constraints"] = content_analysis.get("technical_constraints", [])
+            state["project_context"]["business_goals"] = content_analysis.get("business_goals", [])
+            state["project_context"]["stakeholders"] = content_analysis.get("stakeholders", [])
+            
+            print(f"[MULTIMODAL_GEN] Enriched project_context with requirements for task generation")
+            
             processing_time = (datetime.now() - start_time).total_seconds()
             if "processing_time" not in state:
                 state["processing_time"] = {}

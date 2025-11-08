@@ -66,9 +66,13 @@ export const useKanban = (projectId?: string) => {
             created_at,
             status_id,
             story_id,
+            assignee_id,
             task_status (
               id,
               status_name
+            ),
+            employees (
+              full_name
             )
           `)
           .in('story_id', storyIds);
@@ -83,8 +87,8 @@ export const useKanban = (projectId?: string) => {
             taskId: task.task_id,
             title: task.title,
             description: task.description || '',
-            status: task.task_status?.[0]?.status_name?.toLowerCase().replace(' ', '-') || 'todo',
-            statusId: task.status_id || task.task_status?.[0]?.id || 1,
+            status: task.task_status?.status_name || 'To Do',
+            statusId: task.status_id || 1,
             priority: (task.priority as any) || 'medium',
             category: task.category,
             estimatedHours: task.estimated_hours,
@@ -93,7 +97,9 @@ export const useKanban = (projectId?: string) => {
             dependencies: task.dependencies || [],
             createdAt: new Date(task.created_at),
             updatedAt: new Date(task.created_at),
-            storyId: task.story_id, // Add story_id for grouping
+            storyId: task.story_id,
+            assigneeId: task.assignee_id,
+            assignee: task.employees?.full_name || undefined,
           }));
 
           console.log(`Transformed ${transformedTasks.length} tasks`);
@@ -194,9 +200,13 @@ export const useKanban = (projectId?: string) => {
           dependencies,
           created_at,
           status_id,
+          assignee_id,
           task_status (
             id,
             status_name
+          ),
+          employees (
+            full_name
           )
         `)
         .single();
@@ -207,8 +217,8 @@ export const useKanban = (projectId?: string) => {
           taskId: data.task_id,
           title: data.title,
           description: data.description || '',
-          status: data.task_status?.[0]?.status_name?.toLowerCase().replace(' ', '-') || 'todo',
-          statusId: data.status_id || data.task_status?.[0]?.id || 1,
+          status: (data.task_status as any)?.status_name || 'To Do',
+          statusId: data.status_id || 1,
           priority: (data.priority as any) || 'medium',
           category: data.category,
           estimatedHours: data.estimated_hours,
@@ -217,6 +227,8 @@ export const useKanban = (projectId?: string) => {
           dependencies: data.dependencies || [],
           createdAt: new Date(data.created_at),
           updatedAt: new Date(data.created_at),
+          assigneeId: data.assignee_id,
+          assignee: (data.employees as any)?.full_name || undefined,
         };
 
         setTasks(prev => [...prev, transformedTask]);
@@ -241,6 +253,7 @@ export const useKanban = (projectId?: string) => {
       if (updates.technicalNotes !== undefined) updateData.technical_notes = updates.technicalNotes;
       if (updates.dependencies !== undefined) updateData.dependencies = updates.dependencies;
       if (updates.statusId !== undefined) updateData.status_id = updates.statusId;
+      if (updates.assigneeId !== undefined) updateData.assignee_id = updates.assigneeId;
 
       const { data, error } = await supabase
         .from('tasks')
@@ -259,9 +272,13 @@ export const useKanban = (projectId?: string) => {
           dependencies,
           created_at,
           status_id,
+          assignee_id,
           task_status (
             id,
             status_name
+          ),
+          employees (
+            full_name
           )
         `)
         .single();
@@ -272,8 +289,8 @@ export const useKanban = (projectId?: string) => {
           taskId: data.task_id,
           title: data.title,
           description: data.description || '',
-          status: data.task_status?.[0]?.status_name?.toLowerCase().replace(' ', '-') || 'todo',
-          statusId: data.status_id || data.task_status?.[0]?.id || 1,
+          status: (data.task_status as any)?.status_name || 'To Do',
+          statusId: data.status_id || 1,
           priority: (data.priority as any) || 'medium',
           category: data.category,
           estimatedHours: data.estimated_hours,
@@ -282,6 +299,8 @@ export const useKanban = (projectId?: string) => {
           dependencies: data.dependencies || [],
           createdAt: new Date(data.created_at),
           updatedAt: new Date(data.created_at),
+          assigneeId: data.assignee_id,
+          assignee: (data.employees as any)?.full_name || undefined,
         };
 
         setTasks(prev => prev.map(task => task.id === taskId ? updatedTask : task));
@@ -310,17 +329,91 @@ export const useKanban = (projectId?: string) => {
     }
   }, []);
 
-  const moveTask = useCallback(async (taskId: string, newStatusId: number) => {
+  const moveTask = useCallback(async (taskId: string, newStatusId: number, currentStatusId?: number) => {
     try {
-      const { error } = await supabase
-        .from('tasks')
-        .update({ status_id: newStatusId })
-        .eq('id', taskId);
+      // Get the current user's ID
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        throw new Error('User not authenticated');
+      }
+      
+      // Get the current task to check its current status
+      const currentTask = tasks.find(t => t.id === taskId);
+      const currentStatus = currentStatusId || currentTask?.statusId || 1;
+      
+      // Fetch user's role from employees table
+      const { data: employeeData, error: employeeError } = await supabase
+        .from('employees')
+        .select('role_id, roles(id, role_name)')
+        .eq('id', user.id)
+        .single();
+      
+      if (employeeError) {
+        console.warn('Could not fetch employee role:', employeeError);
+      }
+      
+      const userRole = (employeeData?.roles as any)?.role_name?.toLowerCase() || 'developer';
+      
+      // Role-based permission checks
+      // Status IDs: 1=To Do, 2=In Progress, 3=In Review, 4=Done/Completed
+      
+      // Admins can do anything - skip all permission checks
+      if (userRole === 'admin') {
+        console.log('[PERMISSIONS] Admin user - all actions allowed');
+      } else {
+        // Only Project Managers and Admins can move tasks FROM "In Review" (status 3)
+        if (currentStatus === 3 && userRole !== 'project_manager') {
+          throw new Error('Only project managers and admins can move tasks from "In Review" status');
+        }
+        
+        // Only Project Managers and Admins can move tasks TO "Done/Completed" (status 4)
+        if (newStatusId === 4 && userRole !== 'project_manager') {
+          throw new Error('Only project managers and admins can mark tasks as completed');
+        }
+        
+        // Developers can move To Do (1) → In Progress (2)
+        // Developers can move In Progress (2) → In Review (3) [though this usually happens via PR]
+        if (userRole === 'developer' && ![1, 2, 3].includes(newStatusId)) {
+          throw new Error('Developers can only move tasks through To Do, In Progress, and In Review statuses');
+        }
+      }
+      
+      const updateData: any = { status_id: newStatusId };
+      
+      // If moving to "In Progress" (statusId 2), assign to current user
+      if (newStatusId === 2 && user) {
+        updateData.assignee_id = user.id;
+      }
 
-      if (!error) {
+      const { data, error } = await supabase
+        .from('tasks')
+        .update(updateData)
+        .eq('id', taskId)
+        .select(`
+          id,
+          task_id,
+          status_id,
+          assignee_id,
+          task_status (
+            status_name
+          ),
+          employees (
+            full_name
+          )
+        `)
+        .single();
+
+      if (!error && data) {
         setTasks(prev => prev.map(task =>
           task.id === taskId
-            ? { ...task, statusId: newStatusId }
+            ? { 
+                ...task, 
+                statusId: newStatusId,
+                status: (data.task_status as any)?.status_name || task.status,
+                assigneeId: data.assignee_id,
+                assignee: (data.employees as any)?.full_name || task.assignee
+              }
             : task
         ));
       } else {

@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils';
 interface KanbanCardProps {
   task: Task;
   onEdit?: (task: Task) => void;
+  onDetail?: (task: Task) => void;
   onDelete?: (taskId: string) => void;
   isDragging?: boolean;
 }
@@ -22,6 +23,7 @@ const priorityColors = {
 export const KanbanCard: React.FC<KanbanCardProps> = ({
   task,
   onEdit,
+  onDetail,
   onDelete,
   isDragging = false,
 }) => {
@@ -37,11 +39,12 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
   return (
     <div
       className={cn(
-        'bg-white rounded-lg border border-gray-200 p-4 shadow-sm hover:shadow-md transition-shadow cursor-move',
+        'bg-white rounded-lg border border-gray-200 p-4 shadow-sm hover:shadow-md transition-shadow cursor-pointer',
         isDragging && 'opacity-50 rotate-2',
         isOverdue && 'border-red-300 bg-red-50'
       )}
       draggable
+      onClick={() => onDetail?.(task)}
       onDragStart={(e) => {
         e.dataTransfer.setData('text/plain', task.id);
         e.dataTransfer.effectAllowed = 'move';
@@ -52,7 +55,10 @@ export const KanbanCard: React.FC<KanbanCardProps> = ({
           {task.title}
         </h3>
         <button
-          onClick={() => onEdit?.(task)}
+          onClick={(e) => {
+            e.stopPropagation();
+            onEdit?.(task);
+          }}
           className="p-1 text-gray-400 hover:text-gray-600 transition-colors"
         >
           <MoreHorizontal size={14} />

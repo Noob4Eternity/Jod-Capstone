@@ -8,6 +8,7 @@ fastapi
 uvicorn
 python-multipart
 pypdf2
+pdfplumber
 python-docx
 supabase
 pygithub

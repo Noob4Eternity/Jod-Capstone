@@ -79,6 +79,9 @@ class SupabaseWorkflowAgent:
             project_db_id = project_response.data[0]['id']
             print(f"📄 Project saved to Supabase with ID: {project_db_id}")
 
+            # Save project documentation (requirements + AI-generated docs)
+            self._save_project_documents(project_db_id, state)
+
             # Insert user stories
             user_stories = state.get("user_stories", [])
             if user_stories:
@@ -148,6 +151,137 @@ class SupabaseWorkflowAgent:
             traceback.print_exc()
 
         return state
+
+    def _save_project_documents(self, project_db_id: str, state: ProjectManagementState):
+        """
+        Save project documentation to project_documents table.
+        Stores original requirements, uploaded files content, and AI-generated docs.
+        """
+        try:
+            documents_to_insert = []
+            
+            # 1. Save original text requirements if provided
+            client_requirements = state.get("client_requirements", "")
+            documentation = state.get("documentation", {})
+            
+            # Extract primary requirements from documentation structure
+            primary_requirements = ""
+            document_content = ""
+            
+            if documentation and documentation.get("content"):
+                full_content = documentation["content"]
+                
+                # Parse multimodal structure
+                if "=== PROJECT REQUIREMENTS (TEXT) ===" in full_content:
+                    parts = full_content.split("=== PROJECT REQUIREMENTS (TEXT) ===")
+                    if len(parts) > 1:
+                        primary_section = parts[1].split("=== DOCUMENT:")[0]
+                        primary_requirements = primary_section.strip()
+                        
+                        # Extract document sections
+                        doc_parts = full_content.split("=== DOCUMENT:")
+                        if len(doc_parts) > 1:
+                            document_content = "\n\n".join(doc_parts[1:])
+                else:
+                    # Single source - treat as requirements
+                    primary_requirements = full_content
+            elif client_requirements:
+                # Fallback to client_requirements
+                primary_requirements = client_requirements
+            
+            # Save primary text requirements
+            if primary_requirements:
+                documents_to_insert.append({
+                    "project_id": project_db_id,
+                    "document_type": "requirements_text",
+                    "title": "Original Client Requirements (Text Input)",
+                    "content": primary_requirements,
+                    "metadata": json.dumps({
+                        "source": "user_input",
+                        "word_count": len(primary_requirements.split()),
+                        "char_count": len(primary_requirements),
+                        "timestamp": datetime.now().isoformat()
+                    })
+                })
+            
+            # 2. Save uploaded document content if provided
+            if document_content:
+                documents_to_insert.append({
+                    "project_id": project_db_id,
+                    "document_type": "requirements_file",
+                    "title": "Uploaded Requirements Document",
+                    "content": document_content[:50000],  # Limit to 50k chars for storage
+                    "file_name": documentation.get("title", "requirements_document.pdf"),
+                    "metadata": json.dumps({
+                        "source": "uploaded_file",
+                        "document_type": documentation.get("document_type", "Unknown"),
+                        "word_count": len(document_content.split()),
+                        "char_count": len(document_content),
+                        "timestamp": datetime.now().isoformat()
+                    })
+                })
+            
+            # 3. Save AI-generated documentation (structured analysis)
+            multimodal_metadata = state.get("multimodal_metadata", {})
+            if multimodal_metadata:
+                source_analysis = multimodal_metadata.get("source_analysis", {})
+                
+                # Create a readable summary document
+                ai_doc_content = f"""# AI-Generated Project Analysis
+
+## Core Features
+{chr(10).join(f'- {f}' for f in source_analysis.get('core_features', [])[:10])}
+
+## Identified Stakeholders
+{chr(10).join(f'- {s}' for s in source_analysis.get('stakeholders', [])[:10])}
+
+## Technical Constraints
+{chr(10).join(f'- {c}' for c in source_analysis.get('technical_constraints', [])[:10])}
+
+## Business Goals
+{chr(10).join(f'- {g}' for g in source_analysis.get('business_goals', [])[:10])}
+
+## Conflicts Identified
+{chr(10).join(f'- {c}' for c in source_analysis.get('conflicts', [])[:5]) if source_analysis.get('conflicts') else 'None'}
+
+## Gaps to Address
+{chr(10).join(f'- {g}' for g in source_analysis.get('gaps', [])[:5]) if source_analysis.get('gaps') else 'None'}
+
+## Generation Metadata
+- User Stories Generated: {len(state.get('user_stories', []))}
+- Tasks Generated: {len(state.get('tasks', []))}
+- Validation Score: {state.get('validation_score', 0):.1f}/100
+- Iterations: {state.get('iteration_count', 0)}
+"""
+                
+                documents_to_insert.append({
+                    "project_id": project_db_id,
+                    "document_type": "ai_generated",
+                    "title": "AI-Generated Project Analysis",
+                    "content": ai_doc_content,
+                    "metadata": json.dumps({
+                        "source": "gemini_analysis",
+                        "model": "gemini-2.5-pro",
+                        "validation_score": state.get("validation_score", 0),
+                        "iteration_count": state.get("iteration_count", 0),
+                        "story_count": len(state.get("user_stories", [])),
+                        "task_count": len(state.get("tasks", [])),
+                        "timestamp": datetime.now().isoformat()
+                    })
+                })
+            
+            # Insert all documents
+            if documents_to_insert:
+                response = self.client.from_("project_documents").insert(documents_to_insert).execute()
+                print(f"📚 Saved {len(response.data)} project documents to Supabase.")
+            else:
+                print("[SUPABASE] No project documents to save.")
+                
+        except Exception as e:
+            print(f"[SUPABASE_ERROR] Failed to save project documents: {e}")
+            import traceback
+            traceback.print_exc()
+            # Don't fail the entire save operation if documents fail
 
     def save_project_data(self, data: Dict[str, Any]) -> Optional[str]:
         """

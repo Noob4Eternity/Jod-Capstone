@@ -6,6 +6,7 @@ export interface Task {
   statusId: number; // The status_id from database
   priority: Priority;
   assignee?: string;
+  assigneeId?: string; // UUID of the assigned employee
   createdAt: Date;
   updatedAt: Date;
   dueDate?: Date;

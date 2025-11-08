@@ -3,6 +3,8 @@
 import React, { useState, useEffect } from 'react';
 import { KanbanColumn } from './KanbanColumn';
 import { AddTaskModal } from './AddTaskModal';
+import { TaskDetailModal } from './TaskDetailModal';
+import { ProjectDetailsModal } from './ProjectDetailsModal';
 import { Task, Column, CreateTaskData } from '@/types/kanban';
 import { Search, Filter, Settings, Users, ArrowLeft } from 'lucide-react';
 import Link from 'next/link';
@@ -58,6 +60,8 @@ export const KanbanBoard: React.FC<{ projectId?: string }> = ({ projectId }) => 
   const [columns, setColumns] = useState<Column[]>(defaultColumns);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
+  const [selectedTaskForDetail, setSelectedTaskForDetail] = useState<Task | null>(null);
+  const [isProjectDetailsOpen, setIsProjectDetailsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterPriority, setFilterPriority] = useState<string>('all');
   const [projectName, setProjectName] = useState<string>('');
@@ -131,6 +135,10 @@ export const KanbanBoard: React.FC<{ projectId?: string }> = ({ projectId }) => 
     setSelectedTask(task);
     // Here you could open an edit modal similar to AddTaskModal
     console.log('Edit task:', task);
+  };
+
+  const handleTaskDetail = (task: Task) => {
+    setSelectedTaskForDetail(task);
   };
 
   const handleTaskDelete = (taskId: string) => {
@@ -216,7 +224,11 @@ export const KanbanBoard: React.FC<{ projectId?: string }> = ({ projectId }) => 
 
             {/* Action Buttons */}
             <div className="flex items-center gap-2">
-              <button className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors">
+              <button
+                onClick={() => setIsProjectDetailsOpen(true)}
+                className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+                title="Project Details"
+              >
                 <Users size={18} />
               </button>
               <button className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors">
@@ -242,6 +254,7 @@ export const KanbanBoard: React.FC<{ projectId?: string }> = ({ projectId }) => 
                 onAddTask={() => setIsAddModalOpen(true)}
                 onTaskMove={moveTask}
                 onTaskEdit={handleTaskEdit}
+                onTaskDetail={handleTaskDetail}
                 onTaskDelete={handleTaskDelete}
               />
             ))}
@@ -254,6 +267,22 @@ export const KanbanBoard: React.FC<{ projectId?: string }> = ({ projectId }) => 
         onClose={() => setIsAddModalOpen(false)}
         onSubmit={addTask}
         availableStatuses={columns}
+      />
+
+      {/* Task Detail Modal */}
+      <TaskDetailModal
+        task={selectedTaskForDetail}
+        isOpen={!!selectedTaskForDetail}
+        onClose={() => setSelectedTaskForDetail(null)}
+        onEdit={handleTaskEdit}
+        onDelete={handleTaskDelete}
+      />
+
+      {/* Project Details Modal */}
+      <ProjectDetailsModal
+        projectId={projectId || ''}
+        isOpen={isProjectDetailsOpen}
+        onClose={() => setIsProjectDetailsOpen(false)}
       />
 
       {/* AI Assistant Fab (Future Enhancement) */}

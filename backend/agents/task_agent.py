@@ -29,72 +29,112 @@ class TaskGenerationAgent:
             google_api_key=api_key
         )
         
-        # Optimized batch processing prompt for multiple stories
+        # Enhanced batch processing prompt with project context
         self.batch_task_prompt = ChatPromptTemplate.from_messages([
             (
                 "system",
-                """You are a Technical Lead decomposing user stories into development tasks.
+                """You are a Technical Lead decomposing user stories into SPECIFIC, CONTEXTUAL development tasks.
+
+CRITICAL: Tasks must be SPECIFIC to the actual project requirements, not generic templates.
 
 For each story, generate 3-5 tasks:
-- Backend task (API/database)
-- Frontend task (UI/components) 
-- Testing task (unit/integration tests)
-- Optional: DevOps or documentation task
+- Backend task (API/database) - Reference specific endpoints, models, business logic
+- Frontend task (UI/components) - Reference specific screens, components, user flows
+- Testing task (unit/integration tests) - Reference specific test scenarios from acceptance criteria
+- Optional: DevOps or documentation task - If needed for the story
 
 Each task must include:
 - story_id, title, description, category, estimated_hours, dependencies
-- 2-4 specific acceptance criteria defining when the task is complete
+- 2-4 SPECIFIC acceptance criteria that reference actual features/requirements
+- technical_notes: Implementation details specific to this project
+
+IMPORTANT: 
+- Use the PROJECT CONTEXT to understand what the application actually does
+- Reference specific features, entities, and workflows from the requirements
+- Avoid generic descriptions like "Create API endpoints" - be specific: "Create POST /api/artworks endpoint with title, artist, and image upload"
+- Include relevant technical constraints (frameworks, libraries, architectural decisions)
 
 Return JSON array: [{{
   "story_id": "US001",
-  "title": "Task name",
-  "description": "Create REST API endpoints for user registration, login, and logout.",
+  "title": "Specific task name referencing actual feature",
+  "description": "Detailed description with specific implementation details from project context",
   "category": "backend|frontend|testing|devops",
   "estimated_hours": 8,
   "dependencies": [],
   "acceptance_criteria": [
-    "API endpoint returns correct JSON response",
-    "Endpoint handles error cases appropriately",
-    "Unit tests pass with 90% coverage"
-  ]
+    "Specific criterion referencing actual feature",
+    "Another specific criterion with measurable outcome",
+    "Performance/quality criterion relevant to project"
+  ],
+  "technical_notes": "Implementation notes referencing project tech stack and architecture"
 }}]"""
             ),
             (
                 "human",
-                """Stories:
+                """=== PROJECT CONTEXT ===
+{project_description}
+
+=== TECH STACK ===
+{tech_stack}
+
+=== TECHNICAL CONSTRAINTS ===
+{technical_constraints}
+
+=== USER STORIES TO DECOMPOSE ===
 {stories_formatted}
 
-Tech: {tech_stack}
-
-Generate 3-5 tasks per story. Include a unique title, concise description, and 2-4 specific acceptance criteria for each task. Return JSON array only."""
+Generate 3-5 SPECIFIC tasks per story that reference the actual project context above. Each task should be actionable and contextual to this specific project, not generic templates. Return JSON array only."""
             ),
         ])
         
         self.parser = JsonOutputParser()
     
     def _generate_batch_tasks(self, story_batch: List[Dict], project_context: Dict, starting_task_id: int) -> List[Dict]:
-        """Process multiple stories in a single LLM call for improved performance"""
+        """Process multiple stories in a single LLM call with enhanced project context"""
         
         batch_start_time = datetime.now()
         tech_stack = project_context.get("tech_stack", ["Python", "React", "PostgreSQL"])
         tech_stack_str = ", ".join(tech_stack)
         
-        # Format stories concisely for the prompt
+        # Extract project description from context
+        project_description = project_context.get("project_description", "")
+        if not project_description:
+            # Fallback to description field
+            project_description = project_context.get("description", "General web application")
+        
+        # Extract technical constraints
+        technical_constraints = project_context.get("technical_constraints", [])
+        if isinstance(technical_constraints, list):
+            constraints_str = "\n".join(f"- {c}" for c in technical_constraints) if technical_constraints else "None specified"
+        else:
+            constraints_str = str(technical_constraints)
+        
+        # Format stories with MORE detail for better context
         stories_formatted = []
         for story in story_batch:
-            story_text = f"{story['id']}: {story['title']} | {story.get('priority', 'medium')} priority"
-            stories_formatted.append(story_text)
+            story_text = f"""
+Story ID: {story['id']}
+Title: {story['title']}
+Description: {story.get('description', 'No description')}
+Priority: {story.get('priority', 'medium')}
+Acceptance Criteria:
+{chr(10).join(f'  - {ac}' for ac in story.get('acceptance_criteria', []))}
+Technical Notes: {story.get('technical_notes', 'None')}
+"""
+            stories_formatted.append(story_text.strip())
         
-        stories_formatted_str = "\n".join(stories_formatted)
+        stories_formatted_str = "\n---\n".join(stories_formatted)
         
         try:
             chain = self.batch_task_prompt | self.llm | self.parser
             
-            print(f"[TASK_GEN] Batch processing {len(story_batch)} stories...")
+            print(f"[TASK_GEN] Batch processing {len(story_batch)} stories with project context...")
             
             tasks = chain.invoke({
                 "stories_formatted": stories_formatted_str,
-                "tech_stack": tech_stack_str
+                "tech_stack": tech_stack_str,
+                "project_description": project_description,
+                "technical_constraints": constraints_str
             })
             
             # Ensure we have a list

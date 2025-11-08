@@ -444,6 +444,89 @@ def extract_task_id_from_pr(pr_title: str, branch_name: str) -> Optional[str]:
 
     return None
 
+async def move_task_to_review(
+    task_id: str,
+    pr_number: int,
+    pr_url: str,
+    supabase_client: Client,
+    project_id: Optional[str] = None
+) -> bool:
+    """
+    Move a task from 'In Progress' (status_id=2) to 'In Review' (status_id=3).
+    Only moves tasks that are currently in 'In Progress' status.
+    
+    Args:
+        task_id: The task_id field value (e.g., 'T001')
+        pr_number: GitHub PR number
+        pr_url: GitHub PR URL
+        supabase_client: Supabase client instance
+        project_id: Optional project UUID to filter tasks by project
+    
+    Returns:
+        True if task was successfully moved, False otherwise
+    """
+    try:
+        # Find task by task_id, optionally filtered by project
+        if project_id:
+            # Query with project filter - join through user_stories
+            task_query = supabase_client.table("tasks").select(
+                "*, user_stories!inner(project_id)"
+            ).eq("task_id", task_id).eq("user_stories.project_id", project_id).execute()
+        else:
+            # Query without project filter (legacy behavior)
+            task_query = supabase_client.table("tasks").select("*").eq("task_id", task_id).execute()
+        
+        if not task_query.data:
+            if project_id:
+                print(f"[TASK-MOVE] Task {task_id} not found in project {project_id}")
+            else:
+                print(f"[TASK-MOVE] Task {task_id} not found")
+            return False
+        
+        if len(task_query.data) > 1:
+            print(f"[TASK-MOVE] ⚠️  Found {len(task_query.data)} tasks with task_id={task_id}")
+            if not project_id:
+                print(f"[TASK-MOVE] ⚠️  Multiple tasks found! Consider linking repository to project for accurate task selection.")
+        
+        task = task_query.data[0]
+        task_uuid = task["id"]
+        current_status = task["status_id"]
+        
+        # Map status IDs to names for better logging
+        status_names = {
+            1: "To Do",
+            2: "In Progress",
+            3: "In Review",
+            4: "Completed"
+        }
+        current_status_name = status_names.get(current_status, f"Unknown ({current_status})")
+        
+        # Only move if currently in "In Progress" (status_id = 2)
+        if current_status == 3:
+            print(f"[TASK-MOVE] ℹ️  Task {task_id} is already in 'In Review' status (PR #{pr_number})")
+            return True  # Already in the correct status - consider it a success
+        elif current_status != 2:
+            print(f"[TASK-MOVE] ⚠️  Task {task_id} cannot be moved to Review - current status: {current_status_name}")
+            print(f"[TASK-MOVE] Tasks must be in 'In Progress' status to be automatically moved to Review")
+            return False
+        
+        # Update task status to "In Review" (status_id = 3)
+        update_result = supabase_client.table("tasks").update({
+            "status_id": 3  # In Review
+        }).eq("id", task_uuid).execute()
+        
+        if update_result.data:
+            print(f"[TASK-MOVE] ✓ Task {task_id} moved to 'In Review' (PR #{pr_number})")
+            print(f"[TASK-MOVE] PR URL: {pr_url}")
+            return True
+        else:
+            print(f"[TASK-MOVE] Failed to update task {task_id}")
+            return False
+            
+    except Exception as e:
+        print(f"[TASK-MOVE] Error moving task to review: {str(e)}")
+        return False
+
 async def process_github_webhook_background(
     payload: Dict[str, Any],
     supabase_url: str,
@@ -456,6 +539,8 @@ async def process_github_webhook_background(
 
         # Extract PR information
         pr_data = payload.get("pull_request", {})
+        pr_action = payload.get("action", "")
+        
         if not pr_data:
             print("[WEBHOOK] No pull_request data in payload")
             return
@@ -470,18 +555,22 @@ async def process_github_webhook_background(
             return
 
         print(f"[WEBHOOK] Processing PR #{pr_number} in {repo_full_name}")
+        print(f"[WEBHOOK] PR Action: {pr_action}")
         
         # Initialize Supabase client early
         supabase_client: Client = create_client(supabase_url, supabase_key)
         
         # Optional: Validate repository is associated with a project
         # This provides an additional security layer
+        project_id = None
         project_with_repo = supabase_client.table("projects").select("id", "name").eq("github_repo_full_name", repo_full_name).execute()
         if project_with_repo.data:
             project_info = project_with_repo.data[0]
-            print(f"[WEBHOOK] ✓ Repository linked to project: {project_info['name']} ({project_info['id']})")
+            project_id = project_info['id']
+            print(f"[WEBHOOK] ✓ Repository linked to project: {project_info['name']} ({project_id})")
         else:
             print(f"[WEBHOOK] ⚠️  Repository {repo_full_name} not explicitly linked to any project")
+            print(f"[WEBHOOK] ⚠️  Will search for task across ALL projects (may find wrong task if duplicates exist!)")
             # Still process the webhook, but log the warning
         print(f"[WEBHOOK] Title: {pr_title}")
         print(f"[WEBHOOK] Branch: {branch_name}")
@@ -493,6 +582,28 @@ async def process_github_webhook_background(
             return
 
         print(f"[WEBHOOK] Extracted task ID: {task_id}")
+        
+        # Check current task status before attempting to move
+        task_check = supabase_client.table("tasks").select("task_id, status_id, title").eq("task_id", task_id).execute()
+        if task_check.data:
+            current_task = task_check.data[0]
+            status_names = {1: "To Do", 2: "In Progress", 3: "In Review", 4: "Completed"}
+            current_status_name = status_names.get(current_task["status_id"], "Unknown")
+            print(f"[WEBHOOK] Current task status: {current_status_name} (status_id: {current_task['status_id']})")
+            print(f"[WEBHOOK] Task title: {current_task['title']}")
+        
+        # Only move task to "In Review" when PR is first opened (not on updates/syncs)
+        if pr_action == "opened":
+            print(f"[WEBHOOK] PR is being opened - attempting to move task to 'In Review'")
+            pr_url = pr_data.get("html_url")
+            move_success = await move_task_to_review(task_id, pr_number, pr_url, supabase_client, project_id)
+            
+            if not move_success:
+                print(f"[WEBHOOK] ⚠️  Task status was not updated (see details above)")
+        else:
+            print(f"[WEBHOOK] PR action is '{pr_action}' - skipping task status update (only 'opened' triggers status change)")
+        
+        print(f"[WEBHOOK] Continuing with QC analysis...")
 
         # Initialize GitHub client
         github_client = get_github_client()

@@ -67,22 +67,64 @@ def _extract_text_from_file(file_path: str) -> str:
         raise ValueError(f"Failed to extract text from {file_path}: {e}")
 
 def _extract_text_from_pdf(file_path: str) -> str:
-    """Extract text content from PDF file"""
+    """Extract text content from PDF file with better handling of spacing issues"""
+    
+    # Try pdfplumber first (better text extraction)
+    try:
+        import pdfplumber
+        
+        print(f"[PDF] Using pdfplumber for extraction: {file_path}")
+        text_content = []
+        with pdfplumber.open(file_path) as pdf:
+            for page_num, page in enumerate(pdf.pages):
+                try:
+                    page_text = page.extract_text()
+                    if page_text:
+                        text_content.append(page_text)
+                except Exception as e:
+                    print(f"[WARNING] Error extracting text from page {page_num + 1} with pdfplumber: {e}")
+                    continue
+        
+        if text_content:
+            content = '\n\n'.join(text_content)
+            cleaned = _clean_extracted_text(content)
+            print(f"[PDF] Extracted {len(cleaned)} characters using pdfplumber")
+            return cleaned
+        else:
+            print("[WARNING] pdfplumber returned no content, falling back to PyPDF2")
+            
+    except ImportError:
+        print("[INFO] pdfplumber not installed, falling back to PyPDF2")
+    except Exception as e:
+        print(f"[WARNING] pdfplumber extraction failed: {e}, falling back to PyPDF2")
+        import traceback
+        traceback.print_exc()
+    
+    # Fallback to PyPDF2
     try:
         import PyPDF2
         
+        print(f"[PDF] Using PyPDF2 for extraction (fallback): {file_path}")
         text_content = []
         with open(file_path, 'rb') as file:
             pdf_reader = PyPDF2.PdfReader(file)
             
-            for page in pdf_reader.pages:
-                text_content.append(page.extract_text())
+            for page_num, page in enumerate(pdf_reader.pages):
+                try:
+                    page_text = page.extract_text()
+                    if page_text:
+                        text_content.append(page_text)
+                except Exception as e:
+                    print(f"[WARNING] Error extracting text from page {page_num + 1}: {e}")
+                    continue
         
-        content = '\n'.join(text_content)
-        return _clean_extracted_text(content)
+        content = '\n\n'.join(text_content)
+        cleaned = _clean_extracted_text(content)
+        print(f"[PDF] Extracted {len(cleaned)} characters using PyPDF2")
+        return cleaned
         
     except ImportError:
-        raise ValueError("PyPDF2 library not installed. Run: pip install PyPDF2")
+        raise ValueError("PDF extraction libraries not installed. Run: pip install PyPDF2 pdfplumber")
     except Exception as e:
         raise ValueError(f"Failed to extract text from PDF: {e}")
 
@@ -119,16 +161,43 @@ def _extract_text_from_docx(file_path: str) -> str:
 
 def _clean_extracted_text(text: str) -> str:
     """Clean and normalize extracted text from documents"""
-    # Remove excessive whitespace
-    text = re.sub(r'\n\s*\n', '\n\n', text)
-    text = re.sub(r' +', ' ', text)
+    # Remove excessive whitespace while preserving paragraph structure
+    text = re.sub(r'\n\s*\n\s*\n+', '\n\n', text)  # Multiple blank lines -> double newline
+    text = re.sub(r' +', ' ', text)  # Multiple spaces -> single space
+    text = re.sub(r' \n', '\n', text)  # Remove trailing spaces before newlines
+    text = re.sub(r'\n ', '\n', text)  # Remove leading spaces after newlines
     
-    # Remove strange characters that sometimes appear in PDFs
-    text = re.sub(r'[^\w\s\.,;:!?\-()[\]{}"\'/\\+=*&%$#@|<>~`]', '', text)
-    
-    # Fix common PDF extraction issues
+    # Fix common PDF extraction issues with bullet points
     text = text.replace('•', '-')
     text = text.replace('○', '-')
     text = text.replace('▪', '-')
+    # NOTE: Removed empty string replacement that was causing corruption
+    
+    # Remove null bytes and other control characters that may cause issues
+    text = re.sub(r'[\x00-\x08\x0b-\x0c\x0e-\x1f\x7f]', '', text)
+    
+    # Fix common ligatures and special characters from PDFs
+    text = text.replace('ﬁ', 'fi')
+    text = text.replace('ﬂ', 'fl')
+    text = text.replace('ﬀ', 'ff')
+    text = text.replace('ﬃ', 'ffi')
+    text = text.replace('ﬄ', 'ffl')
+    text = text.replace('—', '-')
+    text = text.replace('–', '-')
+    text = text.replace(''', "'")
+    text = text.replace(''', "'")
+    text = text.replace('"', '"')
+    text = text.replace('"', '"')
+    text = text.replace('…', '...')
+    
+    # Fix hyphenated line breaks (common in PDFs)
+    # "word-\nword" -> "word-word" (keep hyphen)
+    # "word\nword" -> "word word" (add space for split words)
+    text = re.sub(r'(\w)-\s*\n\s*(\w)', r'\1-\2', text)  # Keep hyphens
+    text = re.sub(r'(\w)\s*\n\s*(\w)', r'\1 \2', text)   # Add space for split words
+    
+    # Remove any remaining non-printable characters but keep all text and common punctuation
+    # This is much less aggressive than before
+    text = ''.join(char for char in text if char.isprintable() or char in '\n\r\t')
     
     return text.strip()

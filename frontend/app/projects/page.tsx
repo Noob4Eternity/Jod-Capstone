@@ -2,10 +2,11 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { Calendar, Users, CheckCircle, Clock, Plus } from "lucide-react";
+import { Calendar, Users, CheckCircle, Clock, Plus, Eye } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { ThemeToggleButton2 } from "@/components/theme-button";
-import { SignOutButton } from "@/components/SignOutButton"
+import { SignOutButton } from "@/components/SignOutButton";
+import { ProjectDetailsModal } from "@/components/ProjectDetailsModal";
 interface Project {
   id: string;
   title: string;
@@ -21,6 +22,8 @@ interface Project {
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [isProjectDetailsOpen, setIsProjectDetailsOpen] = useState(false);
 
   // ✅ Status styling helpers
   const getStatusStyle = (status: Project["status"]) => {
@@ -219,9 +222,22 @@ export default function ProjectsPage() {
                         {project.tasksCount} tasks
                       </div>
                     </div>
-                    <span className="text-primary font-medium group-hover:text-accent-foreground transition">
-                      View →
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          setSelectedProjectId(project.id);
+                          setIsProjectDetailsOpen(true);
+                        }}
+                        className="text-muted-foreground hover:text-primary transition-colors p-1"
+                        title="View project details"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+                      <span className="text-primary font-medium group-hover:text-accent-foreground transition">
+                        View →
+                      </span>
+                    </div>
                   </div>
                 </div>
               </Link>
@@ -255,6 +271,16 @@ export default function ProjectsPage() {
           </Link>
         </div>
       </div>
+
+      {/* Project Details Modal */}
+      <ProjectDetailsModal
+        projectId={selectedProjectId || ''}
+        isOpen={isProjectDetailsOpen}
+        onClose={() => {
+          setIsProjectDetailsOpen(false);
+          setSelectedProjectId(null);
+        }}
+      />
     </div>
   );
 }

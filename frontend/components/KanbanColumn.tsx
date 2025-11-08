@@ -11,8 +11,9 @@ interface KanbanColumnProps {
   tasks: Task[];
   stories?: Record<string, { id: string; title: string; storyId: string }>;
   onAddTask?: () => void;
-  onTaskMove?: (taskId: string, newStatusId: number) => void;
+  onTaskMove?: (taskId: string, newStatusId: number, currentStatusId?: number) => void;
   onTaskEdit?: (task: Task) => void;
+  onTaskDetail?: (task: Task) => void;
   onTaskDelete?: (taskId: string) => void;
 }
 
@@ -23,6 +24,7 @@ export const KanbanColumn: React.FC<KanbanColumnProps> = ({
   onAddTask,
   onTaskMove,
   onTaskEdit,
+  onTaskDetail,
   onTaskDelete,
 }) => {
   const [isDragOver, setIsDragOver] = useState(false);
@@ -45,7 +47,9 @@ export const KanbanColumn: React.FC<KanbanColumnProps> = ({
     
     const taskId = e.dataTransfer.getData('text/plain');
     if (taskId && onTaskMove) {
-      onTaskMove(taskId, column.statusId);
+      // Find the task to get its current status ID
+      const task = tasks.find(t => t.id === taskId);
+      onTaskMove(taskId, column.statusId, task?.statusId);
     }
     setDraggedTask(null);
   };
@@ -191,6 +195,7 @@ export const KanbanColumn: React.FC<KanbanColumnProps> = ({
                       key={task.id}
                       task={task}
                       onEdit={onTaskEdit}
+                      onDetail={onTaskDetail}
                       onDelete={onTaskDelete}
                       isDragging={draggedTask === task.id}
                     />
