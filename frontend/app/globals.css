@@ -241,12 +241,10 @@
   }
   body {
     @apply bg-background text-foreground tracking-tight;
-    transition: background-color 0.5s cubic-bezier(0.4, 0, 0.2, 1),
-      color 0.5s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.5s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   /* Smooth transition for all major layout elements */
-  div,
+  /* div,
   section,
   article,
   nav,
@@ -274,9 +272,8 @@
   td,
   th {
     transition-property: background-color, border-color, color, fill, stroke, box-shadow;
-    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
     transition-duration: 700ms;
-  }
+  } */
 }
 
 /* Custom Scrollbar */
