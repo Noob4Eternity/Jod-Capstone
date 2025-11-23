@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useCallback, useLayoutEffect, useRef, useState } from "react";
+import React, { useCallback, useLayoutEffect, useRef, useState, useEffect } from "react";
 import { gsap } from "gsap";
+import { useTheme } from "next-themes";
 import { ThemeToggleButton2 } from "./theme-button";
 
 export interface StaggeredMenuItem {
@@ -38,7 +39,7 @@ export const StaggeredMenu: React.FC<StaggeredMenuProps> = ({
   displaySocials = true,
   displayItemNumbering = true,
   className,
-  logoUrl = "/src/assets/logos/reactbits-gh-accent.svg",
+  logoUrl,
   menuButtonColor = "var(--menu-button-text)",
   openMenuButtonColor = "var(--menu-button-open)",
   changeMenuColorOnOpen = true,
@@ -46,6 +47,18 @@ export const StaggeredMenu: React.FC<StaggeredMenuProps> = ({
   onMenuOpen,
   onMenuClose,
 }: StaggeredMenuProps) => {
+  const { theme, resolvedTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  const defaultLogo =
+    mounted && (theme === "dark" || resolvedTheme === "dark") ? "/logo_2.svg" : "/logo_1.svg";
+
+  const finalLogoUrl = logoUrl || defaultLogo;
+
   const [open, setOpen] = useState(false);
   const openRef = useRef(false);
 
@@ -411,12 +424,11 @@ export const StaggeredMenu: React.FC<StaggeredMenuProps> = ({
             className="sm-logo flex items-center select-none pointer-events-auto"
             aria-label="Logo">
             <img
-              src={logoUrl || "/src/assets/logos/reactbits-gh-accent.svg"}
+              src={finalLogoUrl}
               alt="Logo"
-              className="sm-logo-img block h-8 w-auto object-contain"
+              className="block object-contain"
               draggable={false}
-              width={110}
-              height={24}
+              width={60}
             />
           </div>
 

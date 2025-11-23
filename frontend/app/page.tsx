@@ -37,7 +37,6 @@ export default function Home() {
           openMenuButtonColor="#fff"
           changeMenuColorOnOpen={true}
           colors={["#B19EEF", "#5227FF"]}
-          logoUrl="/path-to-your-logo.svg"
           accentColor="#ff6b6b"
           onMenuOpen={() => console.log("Menu opened")}
           onMenuClose={() => console.log("Menu closed")}
