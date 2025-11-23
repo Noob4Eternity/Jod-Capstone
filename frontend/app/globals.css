@@ -4,7 +4,7 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --background: rgb(255, 255, 255);
+  --background: rgb(248, 250, 252);
   --foreground: rgb(28, 38, 54);
   --card: rgb(255, 255, 255);
   --card-foreground: rgb(28, 38, 54);
@@ -36,20 +36,20 @@
   --sidebar-accent-foreground: rgb(28, 38, 54);
   --sidebar-border: rgb(224, 230, 235);
   --sidebar-ring: rgb(28, 92, 156);
-  
+
   /* Kanban Board Colors */
-  --kanban-todo: var(--chart-1);
-  --kanban-todo-bg: rgb(239, 246, 255);
-  --kanban-todo-border: rgb(191, 219, 254);
-  --kanban-in-progress: var(--chart-3);
-  --kanban-in-progress-bg: rgb(254, 252, 232);
-  --kanban-in-progress-border: rgb(253, 230, 138);
-  --kanban-review: var(--chart-4);
-  --kanban-review-bg: rgb(250, 245, 255);
-  --kanban-review-border: rgb(233, 213, 255);
-  --kanban-done: var(--chart-2);
-  --kanban-done-bg: rgb(240, 253, 244);
-  --kanban-done-border: rgb(167, 243, 208);
+  --kanban-todo: rgb(14, 165, 233);
+  --kanban-todo-bg: rgb(240, 249, 255);
+  --kanban-todo-border: rgb(224, 242, 254);
+  --kanban-in-progress: rgb(59, 130, 246);
+  --kanban-in-progress-bg: rgb(239, 246, 255);
+  --kanban-in-progress-border: rgb(219, 234, 254);
+  --kanban-review: rgb(37, 99, 235);
+  --kanban-review-bg: rgb(239, 246, 255);
+  --kanban-review-border: rgb(191, 219, 254);
+  --kanban-done: rgb(29, 78, 216);
+  --kanban-done-bg: rgb(239, 246, 255);
+  --kanban-done-border: rgb(147, 197, 253);
   --font-sans: "Open Sans", sans-serif;
   --font-serif: "Georgia", serif;
   --font-mono: "Roboto Mono", monospace;
@@ -120,18 +120,18 @@
   --sidebar-accent-foreground: rgb(237, 222, 230);
   --sidebar-border: rgb(48, 48, 54);
   --sidebar-ring: rgb(224, 133, 179);
-  
+
   /* Kanban Board Colors - Dark */
-  --kanban-todo: var(--chart-1);
+  --kanban-todo: rgb(255, 255, 255);
   --kanban-todo-bg: rgb(45, 34, 43);
   --kanban-todo-border: rgb(84, 69, 77);
-  --kanban-in-progress: var(--chart-3);
+  --kanban-in-progress: rgb(255, 182, 193);
   --kanban-in-progress-bg: rgb(43, 34, 45);
   --kanban-in-progress-border: rgb(108, 83, 118);
-  --kanban-review: var(--chart-4);
+  --kanban-review: rgb(255, 105, 180);
   --kanban-review-bg: rgb(45, 34, 40);
   --kanban-review-border: rgb(120, 69, 82);
-  --kanban-done: var(--chart-2);
+  --kanban-done: rgb(255, 20, 147);
   --kanban-done-bg: rgb(40, 34, 43);
   --kanban-done-border: rgb(112, 69, 103);
   --font-sans: Lato, sans-serif;
@@ -240,9 +240,71 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
-    letter-spacing: var(--tracking-normal);
+    @apply bg-background text-foreground tracking-tight;
+    transition: background-color 0.5s cubic-bezier(0.4, 0, 0.2, 1),
+      color 0.5s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.5s cubic-bezier(0.4, 0, 0.2, 1);
   }
+
+  /* Smooth transition for all major layout elements */
+  div,
+  section,
+  article,
+  nav,
+  header,
+  footer,
+  aside,
+  button,
+  span,
+  input,
+  textarea,
+  svg,
+  path,
+  a,
+  h1,
+  h2,
+  h3,
+  h4,
+  h5,
+  h6,
+  p,
+  ul,
+  li,
+  table,
+  tr,
+  td,
+  th {
+    transition-property: background-color, border-color, color, fill, stroke, box-shadow;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 700ms;
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.2);
+  border-radius: 10px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+  transition: background-color 0.2s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.4);
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
 /* Sign Out Button Styles */
@@ -275,7 +337,7 @@
   opacity: 0.9;
 }
 
-  .btn-signout-solid:focus {
+.btn-signout-solid:focus {
   outline: 2px solid hsl(var(--ring));
   outline-offset: 2px;
 }
@@ -340,6 +402,29 @@
 /* Kanban Card Animations */
 .drag-handle {
   transition: opacity 0.2s ease-in-out, background-color 0.2s ease-in-out;
+}
+
+/* Story Group Collapse Animation */
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    max-height: 0;
+  }
+  to {
+    opacity: 1;
+    max-height: 1000px;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    opacity: 1;
+    max-height: 1000px;
+  }
+  to {
+    opacity: 0;
+    max-height: 0;
+  }
 }
 
 /* Modal Animations */

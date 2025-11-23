@@ -1,9 +1,9 @@
-'use client';
+"use client";
 
-import React from 'react';
-import { Task } from '@/types/kanban';
-import { X, Calendar, User, Tag, Clock, AlertCircle, Trash2, Edit } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import React from "react";
+import { Task } from "@/types/kanban";
+import { X, Calendar, User, Tag, Clock, AlertCircle, Trash2, Edit } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface TaskDetailsModalProps {
   isOpen: boolean;
@@ -14,17 +14,17 @@ interface TaskDetailsModalProps {
 }
 
 const priorityColors = {
-  low: 'bg-green-100 text-green-800 border-green-300',
-  medium: 'bg-blue-100 text-blue-800 border-blue-300',
-  high: 'bg-orange-100 text-orange-800 border-orange-300',
-  urgent: 'bg-red-100 text-red-800 border-red-300',
+  low: "bg-green-100 text-green-800 border-green-300",
+  medium: "bg-blue-100 text-blue-800 border-blue-300",
+  high: "bg-orange-100 text-orange-800 border-orange-300",
+  urgent: "bg-red-100 text-red-800 border-red-300",
 };
 
 const priorityIcons = {
-  low: '🟢',
-  medium: '🔵',
-  high: '🟠',
-  urgent: '🔴',
+  low: "🟢",
+  medium: "🔵",
+  high: "🟠",
+  urgent: "🔴",
 };
 
 export const TaskDetailsModal: React.FC<TaskDetailsModalProps> = ({
@@ -37,28 +37,28 @@ export const TaskDetailsModal: React.FC<TaskDetailsModalProps> = ({
   if (!isOpen || !task) return null;
 
   const formatDate = (date: Date) => {
-    return new Intl.DateTimeFormat('en-US', {
-      weekday: 'short',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
+    return new Intl.DateTimeFormat("en-US", {
+      weekday: "short",
+      year: "numeric",
+      month: "long",
+      day: "numeric",
     }).format(date);
   };
 
   const formatDateTime = (date: Date) => {
-    return new Intl.DateTimeFormat('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
+    return new Intl.DateTimeFormat("en-US", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
     }).format(date);
   };
 
   const isOverdue = task.dueDate && new Date(task.dueDate) < new Date();
 
   const handleDelete = () => {
-    if (confirm('Are you sure you want to delete this task?')) {
+    if (confirm("Are you sure you want to delete this task?")) {
       onDelete?.(task.id);
       onClose();
     }
@@ -84,9 +84,7 @@ export const TaskDetailsModal: React.FC<TaskDetailsModalProps> = ({
           <div className="flex items-center gap-3 flex-1">
             <span className="text-2xl">{priorityIcons[task.priority]}</span>
             <div className="flex-1">
-              <h2 className="text-2xl font-bold text-foreground">
-                {task.title}
-              </h2>
+              <h2 className="text-2xl font-bold text-foreground">{task.title}</h2>
               <p className="text-sm text-muted-foreground mt-1">
                 Task ID: {task.id.slice(0, 8)}...
               </p>
@@ -96,21 +94,18 @@ export const TaskDetailsModal: React.FC<TaskDetailsModalProps> = ({
             <button
               onClick={handleEdit}
               className="p-2 text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
-              title="Edit task"
-            >
+              title="Edit task">
               <Edit size={20} />
             </button>
             <button
               onClick={handleDelete}
               className="p-2 text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
-              title="Delete task"
-            >
+              title="Delete task">
               <Trash2 size={20} />
             </button>
             <button
               onClick={onClose}
-              className="p-2 text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
-            >
+              className="p-2 text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors">
               <X size={20} />
             </button>
           </div>
@@ -122,10 +117,9 @@ export const TaskDetailsModal: React.FC<TaskDetailsModalProps> = ({
           <div className="flex flex-wrap items-center gap-2 mb-6">
             <span
               className={cn(
-                'px-3 py-1.5 text-sm font-medium rounded-lg border',
+                "px-3 py-1.5 text-sm font-medium rounded-lg border",
                 priorityColors[task.priority]
-              )}
-            >
+              )}>
               {task.priority.toUpperCase()} Priority
             </span>
             {isOverdue && (
@@ -154,15 +148,16 @@ export const TaskDetailsModal: React.FC<TaskDetailsModalProps> = ({
             {task.assignee && (
               <div className="flex items-start gap-3">
                 <div className="p-2 bg-primary/10 rounded-lg">
-                  <User size={18} className="text-primary" />
+                  <User
+                    size={18}
+                    className="text-primary"
+                  />
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">
                     Assignee
                   </p>
-                  <p className="text-sm font-medium text-foreground">
-                    {task.assignee}
-                  </p>
+                  <p className="text-sm font-medium text-foreground">{task.assignee}</p>
                 </div>
               </div>
             )}
@@ -170,20 +165,21 @@ export const TaskDetailsModal: React.FC<TaskDetailsModalProps> = ({
             {/* Due Date */}
             {task.dueDate && (
               <div className="flex items-start gap-3">
-                <div className={cn(
-                  "p-2 rounded-lg",
-                  isOverdue ? "bg-red-100" : "bg-primary/10"
-                )}>
-                  <Calendar size={18} className={isOverdue ? "text-red-600" : "text-primary"} />
+                <div className={cn("p-2 rounded-lg", isOverdue ? "bg-red-100" : "bg-primary/10")}>
+                  <Calendar
+                    size={18}
+                    className={isOverdue ? "text-red-600" : "text-primary"}
+                  />
                 </div>
                 <div>
                   <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">
                     Due Date
                   </p>
-                  <p className={cn(
-                    "text-sm font-medium",
-                    isOverdue ? "text-red-600" : "text-foreground"
-                  )}>
+                  <p
+                    className={cn(
+                      "text-sm font-medium",
+                      isOverdue ? "text-red-600" : "text-foreground"
+                    )}>
                     {formatDate(new Date(task.dueDate))}
                     {isOverdue && " (Overdue)"}
                   </p>
@@ -194,7 +190,10 @@ export const TaskDetailsModal: React.FC<TaskDetailsModalProps> = ({
             {/* Created */}
             <div className="flex items-start gap-3">
               <div className="p-2 bg-secondary rounded-lg">
-                <Clock size={18} className="text-muted-foreground" />
+                <Clock
+                  size={18}
+                  className="text-muted-foreground"
+                />
               </div>
               <div>
                 <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">
@@ -209,7 +208,10 @@ export const TaskDetailsModal: React.FC<TaskDetailsModalProps> = ({
             {/* Updated */}
             <div className="flex items-start gap-3">
               <div className="p-2 bg-secondary rounded-lg">
-                <Clock size={18} className="text-muted-foreground" />
+                <Clock
+                  size={18}
+                  className="text-muted-foreground"
+                />
               </div>
               <div>
                 <p className="text-xs text-muted-foreground uppercase tracking-wide mb-1">
@@ -233,8 +235,7 @@ export const TaskDetailsModal: React.FC<TaskDetailsModalProps> = ({
                 {task.tags.map((tag, index) => (
                   <span
                     key={index}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-secondary text-foreground rounded-lg border border-border"
-                  >
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-secondary text-foreground rounded-lg border border-border">
                     <Tag size={12} />
                     {tag}
                   </span>
@@ -278,8 +279,7 @@ export const TaskDetailsModal: React.FC<TaskDetailsModalProps> = ({
                 {task.acceptanceCriteria.map((criteria, index) => (
                   <li
                     key={index}
-                    className="flex items-start gap-3 text-sm text-foreground bg-secondary/30 p-3 rounded-lg"
-                  >
+                    className="flex items-start gap-3 text-sm text-foreground bg-secondary/30 p-3 rounded-lg">
                     <span className="text-primary font-bold">{index + 1}.</span>
                     <span>{criteria}</span>
                   </li>
@@ -312,8 +312,7 @@ export const TaskDetailsModal: React.FC<TaskDetailsModalProps> = ({
                 {task.dependencies.map((dep, index) => (
                   <li
                     key={index}
-                    className="flex items-center gap-2 text-sm text-muted-foreground bg-secondary/30 p-3 rounded-lg"
-                  >
+                    className="flex items-center gap-2 text-sm text-muted-foreground bg-secondary/30 p-3 rounded-lg">
                     <AlertCircle size={14} />
                     <span className="font-mono text-xs">{dep}</span>
                   </li>
@@ -327,14 +326,12 @@ export const TaskDetailsModal: React.FC<TaskDetailsModalProps> = ({
         <div className="flex items-center justify-end gap-3 p-6 border-t border-border bg-secondary/50">
           <button
             onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors"
-          >
+            className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors">
             Close
           </button>
           <button
             onClick={handleEdit}
-            className="px-4 py-2 text-sm font-medium bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity"
-          >
+            className="px-4 py-2 text-sm font-medium bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity">
             Edit Task
           </button>
         </div>

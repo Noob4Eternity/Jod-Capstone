@@ -3,6 +3,7 @@
 ## Before and After Comparison
 
 ### BEFORE: Original Card Layout
+
 ```
 ┌─────────────────────────────────────┐
 │ Task Title          [⋯ Menu]        │ ← Entire card draggable
@@ -19,6 +20,7 @@
 ```
 
 ### AFTER: Enhanced Card Layout
+
 ```
 ┌─────────────────────────────────────┐
 │ Task Title           [⋮ Drag]      │ ← Drag handle only (shows on hover)
@@ -38,6 +40,7 @@
 ## Interaction States
 
 ### 1. Default State (Not Hovering)
+
 ```
 ┌─────────────────────────────────────┐
 │ Task Title                          │ ← No drag handle visible
@@ -46,6 +49,7 @@
 ```
 
 ### 2. Hover State
+
 ```
 ┌─────────────────────────────────────┐
 │ Task Title           [⋮ Drag]      │ ← Drag handle appears!
@@ -56,6 +60,7 @@
 ```
 
 ### 3. Dragging State
+
 ```
 ┌─────────────────────────────────────┐
 │ Task Title           [⋮ Drag]      │ ← Card appears faded
@@ -64,6 +69,7 @@
 ```
 
 ### 4. Clicked State (Modal Opens)
+
 ```
 Background Overlay (50% black, blurred)
     ┌───────────────────────────────────────────────┐
@@ -103,6 +109,7 @@ Background Overlay (50% black, blurred)
 ## User Flow Diagrams
 
 ### Flow 1: Viewing Task Details
+
 ```
 User hovers card
        ↓
@@ -120,6 +127,7 @@ Modal closes (fade out)
 ```
 
 ### Flow 2: Moving a Task
+
 ```
 User hovers card
        ↓
@@ -143,6 +151,7 @@ Card animates to position
 ```
 
 ### Flow 3: Editing from Modal
+
 ```
 User clicks card
        ↓
@@ -162,6 +171,7 @@ Card updates with new data
 ```
 
 ### Flow 4: Deleting from Modal
+
 ```
 User clicks card
        ↓
@@ -215,23 +225,25 @@ KanbanBoard (Parent)
 ## CSS Classes Breakdown
 
 ### Drag Handle (.drag-handle)
+
 ```css
 .drag-handle {
   position: absolute;
   top: 0.5rem;
   right: 0.5rem;
   padding: 0.25rem;
-  opacity: 0;                    /* Hidden by default */
-  cursor: move;                  /* Move cursor on hover */
-  transition: opacity 0.2s;      /* Smooth fade in/out */
+  opacity: 0; /* Hidden by default */
+  cursor: move; /* Move cursor on hover */
+  transition: opacity 0.2s; /* Smooth fade in/out */
 }
 
 .group:hover .drag-handle {
-  opacity: 1;                    /* Visible on card hover */
+  opacity: 1; /* Visible on card hover */
 }
 ```
 
 ### Card States
+
 ```css
 /* Base Card */
 .card {
@@ -254,17 +266,18 @@ KanbanBoard (Parent)
 
 /* Overdue State */
 .card.overdue {
-  border-color: rgb(252 165 165);  /* red-300 */
-  background: rgb(254 242 242);     /* red-50 */
+  border-color: rgb(252 165 165); /* red-300 */
+  background: rgb(254 242 242); /* red-50 */
 }
 
 /* Dark Mode Overdue */
 .dark .card.overdue {
-  background: rgb(69 10 10 / 0.2);  /* red-950/20 */
+  background: rgb(69 10 10 / 0.2); /* red-950/20 */
 }
 ```
 
 ### Modal Animation
+
 ```css
 @keyframes modalFadeIn {
   from {
@@ -285,6 +298,7 @@ KanbanBoard (Parent)
 ## Theme Colors Reference
 
 ### Light Theme
+
 - Card Background: `#FFFFFF` (white)
 - Card Border: `#E0E6EB` (light gray)
 - Text: `#1C2636` (dark gray)
@@ -292,6 +306,7 @@ KanbanBoard (Parent)
 - Hover Background: `#EEF2F6` (very light gray)
 
 ### Dark Theme
+
 - Card Background: `#18181B` (dark gray)
 - Card Border: `#303036` (medium dark gray)
 - Text: `#EDDEE6` (light pinkish)
@@ -301,6 +316,7 @@ KanbanBoard (Parent)
 ## Accessibility Features
 
 ### Keyboard Navigation (Current)
+
 - ✅ Modal closes on backdrop click
 - ✅ Buttons have focus states
 - ⚠️ TODO: ESC key to close modal
@@ -308,6 +324,7 @@ KanbanBoard (Parent)
 - ⚠️ TODO: Enter key to open card details
 
 ### Screen Readers
+
 - ✅ Semantic HTML structure
 - ✅ Title attributes on interactive elements
 - ✅ Alt text on icons (via lucide-react)
@@ -315,6 +332,7 @@ KanbanBoard (Parent)
 - ⚠️ TODO: ARIA live region for status updates
 
 ### Visual Affordances
+
 - ✅ Clear cursor changes (pointer vs move)
 - ✅ Hover effects on all interactive elements
 - ✅ Color contrast meets WCAG AA standards
@@ -324,6 +342,7 @@ KanbanBoard (Parent)
 ## Responsive Behavior
 
 ### Desktop (1024px+)
+
 ```
 ┌────────┬────────┬────────┬────────┐
 │  To Do │Progress│ Review │  Done  │
@@ -335,6 +354,7 @@ KanbanBoard (Parent)
 ```
 
 ### Tablet (768px - 1023px)
+
 ```
 ┌────────┬────────┐
 │  To Do │Progress│
@@ -348,6 +368,7 @@ KanbanBoard (Parent)
 ```
 
 ### Mobile (<768px)
+
 ```
 ┌──────────┐
 │  To Do   │
@@ -366,6 +387,7 @@ KanbanBoard (Parent)
 ```
 
 ### Modal Responsive
+
 - Desktop: Max width 768px, centered
 - Mobile: Full screen with padding
 - Scrollable content area
@@ -398,6 +420,7 @@ KanbanBoard (Parent)
 ## Testing Scenarios
 
 ### Manual Testing
+
 1. Hover over card → Drag handle should appear
 2. Move mouse away → Drag handle should fade out
 3. Click card body → Modal should open
@@ -408,15 +431,16 @@ KanbanBoard (Parent)
 8. Resize window → Layout should adapt
 
 ### Automated Testing
+
 ```typescript
-describe('KanbanCard', () => {
-  it('shows drag handle on hover', () => {});
-  it('opens modal on card click', () => {});
-  it('does not open modal on drag handle click', () => {});
-  it('initiates drag from handle', () => {});
-  it('displays task details in modal', () => {});
-  it('closes modal on backdrop click', () => {});
-  it('handles edit action from modal', () => {});
-  it('handles delete action from modal', () => {});
+describe("KanbanCard", () => {
+  it("shows drag handle on hover", () => {});
+  it("opens modal on card click", () => {});
+  it("does not open modal on drag handle click", () => {});
+  it("initiates drag from handle", () => {});
+  it("displays task details in modal", () => {});
+  it("closes modal on backdrop click", () => {});
+  it("handles edit action from modal", () => {});
+  it("handles delete action from modal", () => {});
 });
 ```

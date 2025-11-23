@@ -1,43 +1,62 @@
 # Kanban Board Color Refactoring Summary
 
 ## Overview
+
 Successfully refactored the Kanban board components to use a centralized color system from `globals.css`, ensuring consistent theming across light and dark modes.
 
 ## Changes Made
 
 ### 1. `app/globals.css`
+
 **Added Kanban Color Variables** (Light Theme):
+
 - `--kanban-todo`: Blue theme (based on `--chart-1`)
 - `--kanban-in-progress`: Yellow/Gold theme (based on `--chart-3`)
 - `--kanban-review`: Purple theme (based on `--chart-4`)
 - `--kanban-done`: Green theme (based on `--chart-2`)
 
 Each status has three variants:
+
 - Primary color for dots and highlights
 - Background color for column backgrounds
 - Border color for column borders
 
 **Added Kanban Color Variables** (Dark Theme):
+
 - Adapted colors for dark mode with proper contrast
 - Maintains visual hierarchy and readability
 
 **Created CSS Utility Classes**:
+
 ```css
-.bg-kanban-todo, .bg-kanban-todo-bg, .border-kanban-todo-border, .text-kanban-todo
-.bg-kanban-in-progress, .bg-kanban-in-progress-bg, .border-kanban-in-progress-border, .text-kanban-in-progress
-.bg-kanban-review, .bg-kanban-review-bg, .border-kanban-review-border, .text-kanban-review
-.bg-kanban-done, .bg-kanban-done-bg, .border-kanban-done-border, .text-kanban-done
+.bg-kanban-todo,
+.bg-kanban-todo-bg,
+.border-kanban-todo-border,
+.text-kanban-todo .bg-kanban-in-progress,
+.bg-kanban-in-progress-bg,
+.border-kanban-in-progress-border,
+.text-kanban-in-progress .bg-kanban-review,
+.bg-kanban-review-bg,
+.border-kanban-review-border,
+.text-kanban-review .bg-kanban-done,
+.bg-kanban-done-bg,
+.border-kanban-done-border,
+.text-kanban-done;
 ```
 
 ### 2. `components/KanbanBoard.tsx`
+
 **Updated Default Columns**:
+
 - Changed from hardcoded Tailwind classes (`bg-blue-500`, etc.)
 - Now uses semantic color names (`kanban-todo`, `kanban-in-progress`, etc.)
 
 **Updated Helper Functions**:
+
 - `getStatusColor()` returns semantic color names instead of Tailwind classes
 
 **Theme Integration**:
+
 - Background: `bg-gray-100` → `bg-background`
 - Header: `bg-white` → `bg-card`
 - Borders: `border-gray-200` → `border-border`
@@ -49,11 +68,14 @@ Each status has three variants:
 - Loading spinner: `border-blue-500` → `border-primary`
 
 ### 3. `components/KanbanColumn.tsx`
+
 **Simplified Color Logic**:
+
 - Removed complex `colorMap` object with hardcoded color classes
 - Replaced with simple `getColumnStyles()` function that generates class names dynamically
 
 **Updated Component Styling**:
+
 - All color references now use the dynamic style object
 - Column backgrounds, borders, and text colors adapt automatically
 - Story grouping containers use theme colors (`bg-card`, `border-border`, `text-foreground`)
@@ -61,6 +83,7 @@ Each status has three variants:
 - Drag-over state uses `bg-primary/10` and `border-primary`
 
 **Before**:
+
 ```typescript
 const colorMap = {
   "bg-blue-500": { bg: "bg-blue-50", border: "border-blue-200", ... },
@@ -69,6 +92,7 @@ const colorMap = {
 ```
 
 **After**:
+
 ```typescript
 const getColumnStyles = () => {
   const colorKey = column.color;
@@ -83,7 +107,9 @@ const getColumnStyles = () => {
 ```
 
 ### 4. `KANBAN_COLORS.md`
+
 Created comprehensive documentation including:
+
 - Complete color palette for all status columns
 - Light and dark theme values
 - Available CSS classes
@@ -93,25 +119,31 @@ Created comprehensive documentation including:
 ## Benefits
 
 ### 1. **Automatic Dark Mode Support**
+
 All Kanban colors automatically adapt when the user switches to dark mode, maintaining proper contrast and readability.
 
 ### 2. **Consistent Design System**
+
 The Kanban board now uses the same color tokens as the rest of the application, ensuring visual consistency.
 
 ### 3. **Maintainability**
+
 - All colors defined in one place (`globals.css`)
 - Easy to update the entire color scheme by modifying CSS variables
 - No need to search through components to change colors
 
 ### 4. **Extensibility**
+
 - Adding new status columns is straightforward
 - Clear documentation for developers
 - Follows established patterns
 
 ### 5. **Type Safety**
+
 Components still use TypeScript interfaces and maintain type safety while using dynamic class names.
 
 ### 6. **Performance**
+
 - CSS variables are efficient
 - No runtime color calculations
 - Leverages browser's native theming capabilities
@@ -132,20 +164,22 @@ Components still use TypeScript interfaces and maintain type safety while using 
 ## Color Palette Reference
 
 ### Light Theme
-| Status | Primary | Background | Border |
-|--------|---------|------------|--------|
-| To Do | `#1C5C9C` | `#EFF6FF` | `#BFDBFE` |
-| In Progress | `#E8AB30` | `#FEFCE8` | `#FDE68A` |
-| In Review | `#AA66CC` | `#FAF5FF` | `#E9D5FF` |
-| Done | `#2EB85C` | `#F0FDF4` | `#A7F3D0` |
+
+| Status      | Primary   | Background | Border    |
+| ----------- | --------- | ---------- | --------- |
+| To Do       | `#1C5C9C` | `#EFF6FF`  | `#BFDBFE` |
+| In Progress | `#E8AB30` | `#FEFCE8`  | `#FDE68A` |
+| In Review   | `#AA66CC` | `#FAF5FF`  | `#E9D5FF` |
+| Done        | `#2EB85C` | `#F0FDF4`  | `#A7F3D0` |
 
 ### Dark Theme
-| Status | Primary | Background | Border |
-|--------|---------|------------|--------|
-| To Do | `#EC93BF` | `#2D222B` | `#54454D` |
-| In Progress | `#B353C6` | `#2B222D` | `#6C5376` |
-| In Review | `#E87D8F` | `#2D2228` | `#784552` |
-| Done | `#DB70C9` | `#28222B` | `#704567` |
+
+| Status      | Primary   | Background | Border    |
+| ----------- | --------- | ---------- | --------- |
+| To Do       | `#EC93BF` | `#2D222B`  | `#54454D` |
+| In Progress | `#B353C6` | `#2B222D`  | `#6C5376` |
+| In Review   | `#E87D8F` | `#2D2228`  | `#784552` |
+| Done        | `#DB70C9` | `#28222B`  | `#704567` |
 
 ## Future Enhancements
 

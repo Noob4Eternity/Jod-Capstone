@@ -1,14 +1,17 @@
 # Kanban Card Interaction Update
 
 ## Overview
+
 Updated the Kanban board cards to support both drag-and-drop functionality and click-to-view-details interaction without conflicts.
 
 ## New Features
 
 ### 1. Task Details Modal
+
 A new comprehensive modal component (`TaskDetailsModal.tsx`) that displays all task information:
 
 #### Features:
+
 - **Full Task Information**: Title, description, priority, status
 - **Metadata Display**: Created date, updated date, due date, assignee
 - **Visual Priority Indicators**: Color-coded priority badges with emoji icons
@@ -21,6 +24,7 @@ A new comprehensive modal component (`TaskDetailsModal.tsx`) that displays all t
 - **Quick Actions**: Edit and Delete buttons in header and footer
 
 #### Theme Integration:
+
 - Fully themed with CSS variables from `globals.css`
 - Supports both light and dark modes
 - Consistent with overall design system
@@ -28,27 +32,32 @@ A new comprehensive modal component (`TaskDetailsModal.tsx`) that displays all t
 ### 2. Enhanced Kanban Card
 
 #### Drag Handle Implementation:
+
 - **Position**: Top right corner of each card
 - **Visual**: Grip icon (vertical dots) that appears on hover
 - **Behavior**: Only appears when hovering over the card
 - **Functionality**: Drag-and-drop only works from this handle
 
 #### Click Functionality:
+
 - **Entire Card Clickable**: Clicking anywhere on the card (except the drag handle) opens the details modal
 - **Smart Event Handling**: Prevents conflicts between drag and click events
 - **Visual Feedback**: Card has hover effects to indicate it's interactive
 
 #### Updated Styling:
+
 - Changed from `cursor-move` (entire card) to `cursor-pointer` (entire card) with `cursor-move` (drag handle only)
 - Theme colors replace hardcoded grays
 - Improved dark mode support
 - Smooth transitions and hover effects
 
 ### 3. KanbanColumn Updates
+
 - Added `onTaskClick` prop for handling card clicks
 - Passes click handler to each `KanbanCard` component
 
 ### 4. KanbanBoard Updates
+
 - Imported and integrated `TaskDetailsModal`
 - Added state management for modal visibility
 - Added `handleTaskClick` function to open modal with selected task
@@ -76,6 +85,7 @@ KanbanBoard
 ## User Interaction Flow
 
 ### Viewing Task Details:
+
 1. User hovers over a card
 2. Drag handle appears in top right corner
 3. User clicks anywhere on the card (except drag handle)
@@ -83,6 +93,7 @@ KanbanBoard
 5. User can close modal or take actions (edit/delete)
 
 ### Moving Tasks:
+
 1. User hovers over a card
 2. Drag handle appears in top right corner
 3. User clicks and holds the drag handle
@@ -91,12 +102,14 @@ KanbanBoard
 6. User releases to drop in new status
 
 ### Editing Tasks:
+
 1. User opens Task Details Modal (click card)
 2. User clicks "Edit Task" button in header or footer
 3. Modal closes
 4. Edit functionality executes (currently logs to console)
 
 ### Deleting Tasks:
+
 1. User opens Task Details Modal (click card)
 2. User clicks delete button (trash icon)
 3. Confirmation dialog appears
@@ -107,10 +120,11 @@ KanbanBoard
 ## Technical Implementation
 
 ### Event Handling
+
 ```typescript
 const handleCardClick = (e: React.MouseEvent) => {
   // Prevent click event when clicking on the drag handle
-  if ((e.target as HTMLElement).closest('.drag-handle')) {
+  if ((e.target as HTMLElement).closest(".drag-handle")) {
     return;
   }
   onClick?.(task);
@@ -118,18 +132,19 @@ const handleCardClick = (e: React.MouseEvent) => {
 ```
 
 ### Drag Handle
+
 ```tsx
 <div
   className="drag-handle absolute top-2 right-2 p-1 text-muted-foreground hover:text-foreground hover:bg-secondary rounded cursor-move opacity-0 group-hover:opacity-100 transition-opacity"
   draggable
   onDragStart={handleDragStart}
-  title="Drag to move"
->
+  title="Drag to move">
   <GripVertical size={16} />
 </div>
 ```
 
 ### Modal State Management
+
 ```typescript
 const [isDetailsModalOpen, setIsDetailsModalOpen] = useState(false);
 const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -143,13 +158,16 @@ const handleTaskClick = (task: Task) => {
 ## Styling Updates
 
 ### KanbanCard.tsx
+
 **Before:**
+
 - `cursor-move` on entire card
 - Hardcoded gray colors
 - `draggable` on entire card div
 - `MoreHorizontal` menu button
 
 **After:**
+
 - `cursor-pointer` on card body
 - `cursor-move` only on drag handle
 - Theme colors (`bg-card`, `text-foreground`, etc.)
@@ -157,6 +175,7 @@ const handleTaskClick = (task: Task) => {
 - `GripVertical` drag icon (appears on hover)
 
 ### CSS Additions
+
 ```css
 /* Kanban Card Animations */
 .drag-handle {
@@ -179,17 +198,19 @@ const handleTaskClick = (task: Task) => {
 ## Props Changes
 
 ### KanbanCard
+
 ```typescript
 interface KanbanCardProps {
   task: Task;
   onEdit?: (task: Task) => void;
   onDelete?: (taskId: string) => void;
-  onClick?: (task: Task) => void;  // NEW
+  onClick?: (task: Task) => void; // NEW
   isDragging?: boolean;
 }
 ```
 
 ### KanbanColumn
+
 ```typescript
 interface KanbanColumnProps {
   column: Column;
@@ -199,13 +220,14 @@ interface KanbanColumnProps {
   onTaskMove?: (taskId: string, newStatusId: number) => void;
   onTaskEdit?: (task: Task) => void;
   onTaskDelete?: (taskId: string) => void;
-  onTaskClick?: (task: Task) => void;  // NEW
+  onTaskClick?: (task: Task) => void; // NEW
 }
 ```
 
 ## Theme Colors Used
 
 ### Task Details Modal:
+
 - Background: `bg-card`
 - Text: `text-foreground`
 - Muted text: `text-muted-foreground`
@@ -216,6 +238,7 @@ interface KanbanColumnProps {
 - Accents: `bg-accent`, `text-accent-foreground`
 
 ### Kanban Card:
+
 - Background: `bg-card`
 - Border: `border-border`
 - Text: `text-foreground`
@@ -237,7 +260,7 @@ interface KanbanColumnProps {
 ## Future Enhancements
 
 1. **Edit Modal**: Create dedicated edit modal (similar to AddTaskModal)
-2. **Keyboard Navigation**: 
+2. **Keyboard Navigation**:
    - Arrow keys to move between cards
    - Enter to open details
    - Escape to close modal
@@ -287,14 +310,15 @@ If you have custom implementations of KanbanColumn or KanbanCard:
 5. Update colors from hardcoded values to theme variables
 
 Example:
+
 ```typescript
 // Before
 <KanbanCard task={task} onEdit={handleEdit} onDelete={handleDelete} />
 
 // After
-<KanbanCard 
-  task={task} 
-  onEdit={handleEdit} 
+<KanbanCard
+  task={task}
+  onEdit={handleEdit}
   onDelete={handleDelete}
   onClick={handleTaskClick}  // NEW
 />
