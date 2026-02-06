@@ -1,10 +1,10 @@
-'use client';
+"use client";
 
-import React, { useState } from 'react';
-import { Task, Column } from '@/types/kanban';
-import { KanbanCard } from './KanbanCard';
-import { Plus, MoreVertical } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import React, { useState } from "react";
+import { Task, Column } from "@/types/kanban";
+import { KanbanCard } from "./KanbanCard";
+import { Plus, MoreVertical, ChevronDown, ChevronRight } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 interface KanbanColumnProps {
   column: Column;
@@ -15,6 +15,9 @@ interface KanbanColumnProps {
   onTaskEdit?: (task: Task) => void;
   onTaskDetail?: (task: Task) => void;
   onTaskDelete?: (taskId: string) => void;
+  onTaskClick?: (task: Task) => void;
+  isWide?: boolean;
+  totalTasks?: number;
 }
 
 export const KanbanColumn: React.FC<KanbanColumnProps> = ({
@@ -26,13 +29,29 @@ export const KanbanColumn: React.FC<KanbanColumnProps> = ({
   onTaskEdit,
   onTaskDetail,
   onTaskDelete,
+  onTaskClick,
+  isWide = false,
+  totalTasks = 0,
 }) => {
   const [isDragOver, setIsDragOver] = useState(false);
   const [draggedTask, setDraggedTask] = useState<string | null>(null);
+  const [collapsedStories, setCollapsedStories] = useState<Set<string>>(new Set());
+
+  const toggleStoryCollapse = (storyId: string) => {
+    setCollapsedStories((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(storyId)) {
+        newSet.delete(storyId);
+      } else {
+        newSet.add(storyId);
+      }
+      return newSet;
+    });
+  };
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
+    e.dataTransfer.dropEffect = "move";
     setIsDragOver(true);
   };
 
@@ -44,8 +63,8 @@ export const KanbanColumn: React.FC<KanbanColumnProps> = ({
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setIsDragOver(false);
-    
-    const taskId = e.dataTransfer.getData('text/plain');
+
+    const taskId = e.dataTransfer.getData("text/plain");
     if (taskId && onTaskMove) {
       // Find the task to get its current status ID
       const task = tasks.find(t => t.id === taskId);
@@ -56,92 +75,81 @@ export const KanbanColumn: React.FC<KanbanColumnProps> = ({
 
   const isAtLimit = column.limit && tasks.length >= column.limit;
 
-  // Extract color class name for styling
-  const getColumnColorClasses = () => {
-    const colorMap: Record<string, { bg: string; border: string; header: string; text: string }> = {
-      'bg-gray-400': { 
-        bg: 'bg-gray-50', 
-        border: 'border-gray-200', 
-        header: 'bg-gray-100 border-gray-300',
-        text: 'text-gray-700'
-      },
-      'bg-blue-500': { 
-        bg: 'bg-blue-50', 
-        border: 'border-blue-200', 
-        header: 'bg-blue-100 border-blue-300',
-        text: 'text-blue-700'
-      },
-      'bg-yellow-500': { 
-        bg: 'bg-yellow-50', 
-        border: 'border-yellow-200', 
-        header: 'bg-yellow-100 border-yellow-300',
-        text: 'text-yellow-700'
-      },
-      'bg-purple-500': { 
-        bg: 'bg-purple-50', 
-        border: 'border-purple-200', 
-        header: 'bg-purple-100 border-purple-300',
-        text: 'text-purple-700'
-      },
-      'bg-green-500': { 
-        bg: 'bg-green-50', 
-        border: 'border-green-200', 
-        header: 'bg-green-100 border-green-300',
-        text: 'text-green-700'
-      },
+  // Map column color to CSS variable names
+  const getColumnStyles = () => {
+    const colorKey = column.color;
+    return {
+      dotColor: `bg-${colorKey}`,
+      bgColor: `bg-${colorKey}-bg`,
+      borderColor: `border-${colorKey}-border`,
+      textColor: `text-${colorKey}`,
+      headerBg: `bg-${colorKey}-bg`,
     };
-    return colorMap[column.color] || colorMap['bg-gray-400'];
   };
 
-  const colorClasses = getColumnColorClasses();
+  const styles = getColumnStyles();
+
+  // Calculate progress percentage based on total tasks (Distribution)
+  const progressPercentage = totalTasks > 0 ? (tasks.length / totalTasks) * 100 : 0;
 
   return (
-    <div className={cn(
-      "flex flex-col h-full rounded-lg p-0 min-w-[300px] max-w-[350px] border-2",
-      colorClasses.bg,
-      colorClasses.border
-    )}>
-      {/* Column Header */}
-      <div className={cn(
-        "flex items-center justify-between mb-4 p-4 rounded-t-lg border-b-2",
-        colorClasses.header,
-        colorClasses.border
+    <div
+      className={cn(
+        "flex flex-col h-full rounded-xl overflow-hidden border border-border/40 shadow-sm group",
+        "bg-secondary/20 hover:shadow-md hover:border-border/60"
       )}>
-        <div className="flex items-center gap-2">
+      {/* Glowing Progress Line */}
+      <div className="h-1 w-full bg-secondary/50 relative overflow-hidden">
+        <div
+          className={cn("h-full transition-all duration-500 ease-out", styles.dotColor)}
+          style={{
+            width: `${progressPercentage}%`,
+            boxShadow: `0 0 10px 2px var(--${column.color})`,
+          }}
+        />
+      </div>
+
+      {/* Column Header */}
+      <div
+        className={cn(
+          "flex items-center justify-between px-4 py-3 lg:px-2 lg:py-2 xl:px-4 xl:py-3 border-b border-border/10",
+          "bg-background/10 backdrop-blur-sm"
+        )}>
+        <div className="flex items-center gap-2.5 lg:gap-1.5 xl:gap-2.5">
           <div
-            className={cn('w-3 h-3 rounded-full', column.color)}
+            className={cn(
+              "w-2.5 h-2.5 lg:w-2 lg:h-2 xl:w-2.5 xl:h-2.5 rounded-full shadow-sm",
+              styles.dotColor
+            )}
           />
-          <h2 className={cn("font-semibold", colorClasses.text)}>{column.title}</h2>
-          <span className={cn(
-            'px-2 py-1 text-xs rounded-full border',
-            isAtLimit 
-              ? 'bg-red-100 text-red-700 border-red-300' 
-              : `bg-white ${colorClasses.text} ${colorClasses.border}`
-          )}>
+          <h2 className="font-bold text-sm lg:text-[11px] xl:text-sm text-foreground tracking-tight">
+            {column.title}
+          </h2>
+          <span
+            className={cn(
+              "px-1.5 py-0.5 text-[10px] font-semibold rounded-full bg-secondary text-muted-foreground border border-border/50",
+              isAtLimit &&
+                "bg-red-100 text-red-700 border-red-200 dark:bg-red-900/30 dark:text-red-300 dark:border-red-800"
+            )}>
             {tasks.length}
-            {column.limit && `/${column.limit}`}
+            <span className="text-muted-foreground/60 mx-0.5">/</span>
+            {totalTasks}
           </span>
         </div>
-        
-        <div className="flex items-center gap-1">
+
+        <div className="flex items-center">
           <button
             onClick={onAddTask}
             disabled={!!isAtLimit}
             className={cn(
-              'p-1.5 rounded-md transition-colors',
-              isAtLimit
-                ? 'text-gray-300 cursor-not-allowed'
-                : `${colorClasses.text} hover:bg-white hover:bg-opacity-50`
+              "p-1 rounded-lg transition-all duration-200 text-muted-foreground hover:text-primary hover:bg-primary/10",
+              isAtLimit && "opacity-50 cursor-not-allowed"
             )}
-            title={isAtLimit ? 'Column limit reached' : 'Add new task'}
-          >
-            <Plus size={16} />
-          </button>
-          <button className={cn(
-            "p-1.5 rounded-md transition-colors hover:bg-white hover:bg-opacity-50",
-            colorClasses.text
-          )}>
-            <MoreVertical size={16} />
+            title={isAtLimit ? "Column limit reached" : "Add new task"}>
+            <Plus
+              size={14}
+              className="lg:w-3 lg:h-3 xl:w-3.5 xl:h-3.5"
+            />
           </button>
         </div>
       </div>
@@ -149,23 +157,26 @@ export const KanbanColumn: React.FC<KanbanColumnProps> = ({
       {/* Tasks Container */}
       <div
         className={cn(
-          'flex-1 space-y-3 min-h-[200px] max-h-[600px] overflow-y-auto transition-colors rounded-lg p-4 mx-4 mb-4',
-          'bg-white bg-opacity-60',
-          isDragOver && 'bg-blue-100 border-2 border-dashed border-blue-400'
+          "flex-1 overflow-y-auto p-3 lg:p-2 xl:p-3 space-y-3 lg:space-y-2 xl:space-y-3 scrollbar-thin scrollbar-thumb-border scrollbar-track-transparent",
+          isDragOver && "bg-primary/5 ring-2 ring-inset ring-primary/20",
+          isWide && "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 space-y-0 content-start"
         )}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
-        onDrop={handleDrop}
-      >
+        onDrop={handleDrop}>
         {tasks.length === 0 ? (
-          <div className="flex items-center justify-center h-32 text-gray-500 text-sm">
-            {isDragOver ? 'Drop task here' : 'No tasks yet'}
+          <div
+            className={cn(
+              "flex flex-col items-center justify-center text-muted-foreground/40 text-sm border-2 border-dashed border-border/40 rounded-xl m-1 transition-colors hover:border-primary/20 hover:bg-primary/5",
+              isWide ? "h-32 col-span-full" : "h-32"
+            )}>
+            <p>{isDragOver ? "Drop task here" : "No tasks yet"}</p>
           </div>
         ) : (
           // Group tasks by story_id
           (() => {
             const groupedTasks = tasks.reduce((groups, task) => {
-              const storyId = task.storyId || 'no-story';
+              const storyId = task.storyId || "no-story";
               if (!groups[storyId]) {
                 groups[storyId] = [];
               }
@@ -173,51 +184,114 @@ export const KanbanColumn: React.FC<KanbanColumnProps> = ({
               return groups;
             }, {} as Record<string, typeof tasks>);
 
-            return Object.entries(groupedTasks).map(([storyId, storyTasks]) => (
-              <div
-                key={storyId}
-                className="mb-4 p-3 border-2 border-gray-200 rounded-lg bg-gray-50 bg-opacity-50"
-              >
-                {/* Story Header */}
-                <div className="mb-2 pb-2 border-b border-gray-300">
-                  <h4 className="text-sm font-medium text-gray-700">
-                    {storyId === 'no-story' 
-                      ? 'Unassigned Tasks' 
-                      : stories[storyId]?.title || `Story: ${stories[storyId]?.storyId || storyId}`
-                    }
-                  </h4>
-                </div>
+            return Object.entries(groupedTasks).map(([storyId, storyTasks]) => {
+              const isCollapsed = collapsedStories.has(storyId);
+              const taskCount = storyTasks.length;
 
-                {/* Tasks in this story */}
-                <div className="space-y-3">
-                  {storyTasks.map((task) => (
-                    <KanbanCard
-                      key={task.id}
-                      task={task}
-                      onEdit={onTaskEdit}
-                      onDetail={onTaskDetail}
-                      onDelete={onTaskDelete}
-                      isDragging={draggedTask === task.id}
-                    />
-                  ))}
+              if (storyId === "no-story") {
+                return (
+                  <React.Fragment key={storyId}>
+                    {storyTasks.map((task) => (
+                      <div
+                        key={task.id}
+                        className={isWide ? "h-full" : ""}>
+                        <KanbanCard
+                          task={task}
+                          onEdit={onTaskEdit}
+                          onDelete={onTaskDelete}
+                          onClick={onTaskClick}
+                          isDragging={draggedTask === task.id}
+                        />
+                      </div>
+                    ))}
+                  </React.Fragment>
+                );
+              }
+
+              return (
+                <div
+                  key={storyId}
+                  className={cn(
+                    "mb-2 border border-border/40 rounded-xl bg-background/40 overflow-hidden shadow-sm",
+                    isWide && "col-span-full"
+                  )}>
+                  {/* Story Header - Clickable */}
+                  <button
+                    onClick={() => toggleStoryCollapse(storyId)}
+                    className="w-full flex items-start justify-between p-3 lg:p-1.5 xl:p-3 hover:bg-secondary/50 transition-colors text-left group gap-4 lg:gap-2 xl:gap-4">
+                    <div className="flex items-start gap-2 flex-1 min-w-0">
+                      {isCollapsed ? (
+                        <ChevronRight
+                          size={14}
+                          className="text-muted-foreground shrink-0 group-hover:text-foreground transition-colors mt-1"
+                        />
+                      ) : (
+                        <ChevronDown
+                          size={14}
+                          className="text-muted-foreground shrink-0 group-hover:text-foreground transition-colors mt-1"
+                        />
+                      )}
+                      <h4 className="text-sm lg:text-xs xl:text-sm font-bold text-muted-foreground group-hover:text-foreground transition-colors break-words leading-snug">
+                        {stories[storyId]?.title ||
+                          `Story: ${stories[storyId]?.storyId || storyId}`}
+                      </h4>
+                    </div>
+                    <span className="text-[10px] font-bold text-muted-foreground/70 bg-secondary/40 backdrop-blur-sm px-2 py-1 rounded-full shrink-0 border border-border/30 mt-0.5">
+                      {taskCount}
+                    </span>
+                  </button>
+
+                  {/* Tasks in this story - Collapsible with smooth animation */}
+                  <div
+                    className={cn(
+                      "grid transition-all duration-300 ease-in-out",
+                      isCollapsed ? "grid-rows-[0fr] opacity-0" : "grid-rows-[1fr] opacity-100"
+                    )}>
+                    <div className="overflow-hidden">
+                      <div
+                        className={cn(
+                          "p-3 pt-0",
+                          isWide
+                            ? "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3"
+                            : "space-y-2"
+                        )}>
+                        <div className={isWide ? "hidden" : "h-1"}></div>
+                        {storyTasks.map((task) => (
+                          <KanbanCard
+                            key={task.id}
+                            task={task}
+                            onEdit={onTaskEdit}
+                            onDelete={onTaskDelete}
+                            onClick={onTaskClick}
+                            isDragging={draggedTask === task.id}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ));
+              );
+            });
           })()
         )}
       </div>
 
       {/* Add Task Button */}
       {!isAtLimit && (
-        <button
-          onClick={onAddTask}
-          className={cn(
-            "mx-4 mb-4 py-2 text-sm rounded-md transition-colors border-2 border-dashed hover:bg-white hover:bg-opacity-50",
-            `${colorClasses.text} ${colorClasses.border} hover:${colorClasses.border.replace('border-', 'border-')}-400`
-          )}
-        >
-          + Add a task
-        </button>
+        <div className="p-3 pt-0">
+          <button
+            onClick={onAddTask}
+            className={cn(
+              "w-full py-2 text-xs font-semibold rounded-lg transition-all duration-200",
+              "text-muted-foreground hover:text-primary hover:bg-primary/5 border border-transparent hover:border-primary/20",
+              "flex items-center justify-center gap-2 group"
+            )}>
+            <div className="p-0.5 rounded-md bg-secondary group-hover:bg-primary/20 transition-colors">
+              <Plus size={12} />
+            </div>
+            Add New Task
+          </button>
+        </div>
       )}
     </div>
   );

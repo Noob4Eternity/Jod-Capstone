@@ -25,6 +25,7 @@ interface HighlighterProps {
   padding?: number;
   multiline?: boolean;
   isView?: boolean;
+  opacity?: number; // 0..1
 }
 
 export function Highlighter({
@@ -37,6 +38,7 @@ export function Highlighter({
   padding = 2,
   multiline = true,
   isView = false,
+  opacity = 1, // new
 }: HighlighterProps) {
   const elementRef = useRef<HTMLSpanElement>(null);
   const annotationRef = useRef<RoughAnnotation | null>(null);
@@ -55,9 +57,34 @@ export function Highlighter({
     const element = elementRef.current;
     if (!element) return;
 
+    const toColorWithOpacity = (c: string, a: number) => {
+      const alpha = Math.max(0, Math.min(1, a));
+      // Hex (#rgb or #rrggbb) -> rgba(...)
+      if (c.startsWith("#")) {
+        let hex = c.slice(1);
+        if (hex.length === 3) hex = hex.split("").map((ch) => ch + ch).join("");
+        const num = parseInt(hex, 16);
+        const r = (num >> 16) & 255;
+        const g = (num >> 8) & 255;
+        const b = num & 255;
+        return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+      }
+      // rgb(...) -> rgba(...)
+      if (c.startsWith("rgb(")) {
+        const inside = c.slice(4, -1);
+        return `rgba(${inside}, ${alpha})`;
+      }
+      // Fallback for CSS variables or other color functions
+      // Blend with transparent to emulate alpha
+      const pct = Math.round(alpha * 100);
+      return `color-mix(in oklch, ${c} ${pct}%, transparent)`;
+    };
+
+    const effectiveColor = toColorWithOpacity(color, opacity);
+
     const annotationConfig = {
       type: action,
-      color,
+      color: effectiveColor,
       strokeWidth,
       animationDuration,
       iterations,
@@ -88,6 +115,7 @@ export function Highlighter({
     shouldShow,
     action,
     color,
+    opacity, // add dependency
     strokeWidth,
     animationDuration,
     iterations,

@@ -27,7 +27,7 @@ const darkenColor = (hex: string, percent: number): string => {
 };
 
 const Folder: React.FC<FolderProps> = ({
-  color = "var(--accent)",
+  color = "var(--folder-paper-base)",
   size = 1,
   items = [],
   className = "",
@@ -43,10 +43,13 @@ const Folder: React.FC<FolderProps> = ({
     Array.from({ length: maxItems }, () => ({ x: 0, y: 0 }))
   );
 
-  const folderBackColor = darkenColor(color, 0.08);
-  const paper1 = darkenColor("#ffffff", 0.1);
-  const paper2 = darkenColor("#ffffff", 0.05);
-  const paper3 = "#ffffff";
+  const folderBackColor = `color-mix(in oklch, ${color} 92%, black 8%)`;
+
+  // theme-aware via globals.css
+  const paperBase = "var(--folder-paper-base)";
+  const paper1 = "var(--folder-paper-1)";
+  const paper2 = "var(--folder-paper-2)";
+  const paper3 = "var(--folder-paper-3)";
 
   const handleClick = () => {
     setOpen((prev) => !prev);
@@ -112,10 +115,10 @@ const Folder: React.FC<FolderProps> = ({
         onClick={handleClick}>
         <div
           className="relative w-[100px] h-[80px] rounded-tl-0 rounded-tr-[10px] rounded-br-[10px] rounded-bl-[10px]"
-          style={{ backgroundColor: "var(--accent)" }}>
+          style={{ backgroundColor: paperBase }}>
           <span
             className="absolute z-0 bottom-[98%] left-0 w-[30px] h-[10px] rounded-tl-[5px] rounded-tr-[5px] rounded-bl-0 rounded-br-0"
-            style={{ backgroundColor: "var(--accent)" }}></span>
+            style={{ backgroundColor: paperBase }}></span>
           {papers.map((item, i) => {
             let sizeClasses = "";
             if (i === 0) sizeClasses = open ? "w-[70%] h-[80%]" : "w-[70%] h-[80%]";
