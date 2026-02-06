@@ -6,6 +6,7 @@ import { Calendar, Users, CheckCircle, Clock, Plus, Eye } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { FloatingNav } from "@/components/FloatingNav";
 import { FloatingUtilityBar } from "@/components/FloatingUtilityBar";
+import { ProjectDetailsModal } from "@/components/ProjectDetailsModal";
 interface Project {
   id: string;
   title: string;

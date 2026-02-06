@@ -3,6 +3,24 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { ThemeToggleButton2 } from "@/components/theme-button";
+import StaggeredMenu, { StaggeredMenuItem, StaggeredMenuSocialItem } from "@/components/StaggeredMenu";
+import Navbar from "@/components/Navbar";
+import Folder from "@/components/Folder";
+import { Highlighter } from "@/components/ui/highlighter";
+
+// Menu items configuration
+const menuItems: StaggeredMenuItem[] = [
+  { label: "Home", ariaLabel: "Navigate to Home", link: "/" },
+  { label: "Projects", ariaLabel: "Navigate to Projects", link: "/projects" },
+  { label: "About", ariaLabel: "Navigate to About", link: "/about" },
+  { label: "Contact", ariaLabel: "Navigate to Contact", link: "/contact" },
+];
+
+const socialItems: StaggeredMenuSocialItem[] = [
+  { label: "GitHub", link: "https://github.com" },
+  { label: "LinkedIn", link: "https://linkedin.com" },
+  { label: "Twitter", link: "https://twitter.com" },
+];
 
 export default function Home() {
   const router = useRouter();

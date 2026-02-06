@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { FloatingNav } from "@/components/FloatingNav";
 import { FloatingUtilityBar } from "@/components/FloatingUtilityBar";
+import BoxesLoader from "@/components/ui/boxesloader";
 
 export default function Agents() {
   const [requirements, setRequirements] = useState("");
@@ -237,16 +238,19 @@ export default function Agents() {
                              font-medium text-sm sm:text-base h-10 sm:h-12 px-6 disabled:opacity-50">
                 {isLoading ? "Generating..." : "Generate User Stories"}
               </button>
-
-              {/* <Link
-                href="/menu"
-                className="rounded-full border border-border transition-colors flex items-center justify-center 
-                             hover:bg-muted font-medium text-sm sm:text-base h-10 sm:h-12 px-6">
-                Back to Menu
-              </Link> */}
             </div>
           </form>
         </div>
+
+          {/* Loading Indicator */}
+          {isLoading && (
+            <div className="w-full flex flex-col items-center justify-center gap-4 p-8 bg-card/50 border border-border rounded-lg backdrop-blur-sm">
+              <BoxesLoader size="56" desktopSize="72" mobileSize="48" duration={900} />
+              <p className="text-sm font-medium text-muted-foreground">
+                Generating user stories and tasks...
+              </p>
+            </div>
+          )}
 
         {/* Error + Response Cards */}
         {error && (
