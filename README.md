@@ -1,5 +1,5 @@
 <p align="center">
-  <h1 align="center">🚀 JOD — AI-Powered Project Management Platform</h1>
+  <h1 align="center">🚀 orchestrate.ai — AI-Powered Project Management Platform</h1>
   <p align="center">
     Transform raw requirements into structured, validated user stories and development tasks — powered by a multi-agent LangGraph workflow and Google Gemini 2.5 Pro.
   </p>
